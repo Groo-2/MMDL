@@ -1,0 +1,278 @@
+{
+  "experiment": "reasoning_final_answer_v2",
+  "model": {
+    "repo": "Qwen/Qwen3-VL-4B-Instruct",
+    "served_name": "qwen3-vl-4b",
+    "revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+    "dtype": "bfloat16"
+  },
+  "dataset": {
+    "repo": "MMMU/MMMU",
+    "revision": "98e6ac0cb9b7b2cd2c991b85a50762edc4aedc68",
+    "split": "validation"
+  },
+  "subjects": 30,
+  "samples": 900,
+  "correct": 562,
+  "macro_accuracy": 0.6244444444444446,
+  "micro_accuracy": 0.6244444444444445,
+  "elapsed_sec": 9735.006,
+  "generation": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "repetition_penalty": 1.0,
+    "presence_penalty": 1.5,
+    "seed": 3407,
+    "max_new_tokens": 4096
+  },
+  "image_processing": {
+    "min_pixels": 1003520,
+    "max_pixels": 4014080,
+    "encoding": "JPEG quality=95"
+  },
+  "prompt": {
+    "multiple_choice_instruction": "Work through the problem carefully.\nKeep the reasoning concise.\nAt the end of your response, output exactly one final-answer line in this format:\n\nFinal Answer: X\n\nwhere X is one of the valid option letters: {valid_letters}",
+    "open_instruction": "Work through the problem carefully.\nKeep the reasoning concise.\nAt the end of your response, output exactly one final-answer line in this format:\n\nFinal Answer: <answer>"
+  },
+  "parser": {
+    "name": "deterministic_final_answer_v2",
+    "multiple_choice_priority": [
+      "Final Answer",
+      "Answer pattern",
+      "last-line option",
+      "exact letter",
+      "tail fallback"
+    ],
+    "open_priority": [
+      "Final Answer",
+      "Answer line",
+      "last non-empty line"
+    ],
+    "numeric_round_digits": 2,
+    "llm_judge": false
+  },
+  "parser_method_counts": {
+    "final_answer": 771,
+    "tail_fallback": 72,
+    "answer_pattern": 12,
+    "none": 37,
+    "last_line": 8
+  },
+  "finish_reason_counts": {
+    "stop": 772,
+    "length": 128
+  },
+  "subject_results": [
+    {
+      "subject": "Accounting",
+      "samples": 30,
+      "correct": 24,
+      "accuracy": 0.8,
+      "elapsed_sec": 505.238
+    },
+    {
+      "subject": "Agriculture",
+      "samples": 30,
+      "correct": 15,
+      "accuracy": 0.5,
+      "elapsed_sec": 50.566
+    },
+    {
+      "subject": "Architecture_and_Engineering",
+      "samples": 30,
+      "correct": 12,
+      "accuracy": 0.4,
+      "elapsed_sec": 1037.168
+    },
+    {
+      "subject": "Art",
+      "samples": 30,
+      "correct": 19,
+      "accuracy": 0.6333333333333333,
+      "elapsed_sec": 76.051
+    },
+    {
+      "subject": "Art_Theory",
+      "samples": 30,
+      "correct": 22,
+      "accuracy": 0.7333333333333333,
+      "elapsed_sec": 89.833
+    },
+    {
+      "subject": "Basic_Medical_Science",
+      "samples": 30,
+      "correct": 22,
+      "accuracy": 0.7333333333333333,
+      "elapsed_sec": 74.308
+    },
+    {
+      "subject": "Biology",
+      "samples": 30,
+      "correct": 16,
+      "accuracy": 0.5333333333333333,
+      "elapsed_sec": 152.418
+    },
+    {
+      "subject": "Chemistry",
+      "samples": 30,
+      "correct": 14,
+      "accuracy": 0.4666666666666667,
+      "elapsed_sec": 431.036
+    },
+    {
+      "subject": "Clinical_Medicine",
+      "samples": 30,
+      "correct": 21,
+      "accuracy": 0.7,
+      "elapsed_sec": 143.996
+    },
+    {
+      "subject": "Computer_Science",
+      "samples": 30,
+      "correct": 20,
+      "accuracy": 0.6666666666666666,
+      "elapsed_sec": 370.524
+    },
+    {
+      "subject": "Design",
+      "samples": 30,
+      "correct": 21,
+      "accuracy": 0.7,
+      "elapsed_sec": 70.552
+    },
+    {
+      "subject": "Diagnostics_and_Laboratory_Medicine",
+      "samples": 30,
+      "correct": 11,
+      "accuracy": 0.36666666666666664,
+      "elapsed_sec": 113.341
+    },
+    {
+      "subject": "Economics",
+      "samples": 30,
+      "correct": 28,
+      "accuracy": 0.9333333333333333,
+      "elapsed_sec": 108.907
+    },
+    {
+      "subject": "Electronics",
+      "samples": 30,
+      "correct": 12,
+      "accuracy": 0.4,
+      "elapsed_sec": 786.113
+    },
+    {
+      "subject": "Energy_and_Power",
+      "samples": 30,
+      "correct": 17,
+      "accuracy": 0.5666666666666667,
+      "elapsed_sec": 905.649
+    },
+    {
+      "subject": "Finance",
+      "samples": 30,
+      "correct": 19,
+      "accuracy": 0.6333333333333333,
+      "elapsed_sec": 349.828
+    },
+    {
+      "subject": "Geography",
+      "samples": 30,
+      "correct": 15,
+      "accuracy": 0.5,
+      "elapsed_sec": 288.76
+    },
+    {
+      "subject": "History",
+      "samples": 30,
+      "correct": 22,
+      "accuracy": 0.7333333333333333,
+      "elapsed_sec": 90.44
+    },
+    {
+      "subject": "Literature",
+      "samples": 30,
+      "correct": 24,
+      "accuracy": 0.8,
+      "elapsed_sec": 45.867
+    },
+    {
+      "subject": "Manage",
+      "samples": 30,
+      "correct": 18,
+      "accuracy": 0.6,
+      "elapsed_sec": 263.037
+    },
+    {
+      "subject": "Marketing",
+      "samples": 30,
+      "correct": 25,
+      "accuracy": 0.8333333333333334,
+      "elapsed_sec": 244.017
+    },
+    {
+      "subject": "Materials",
+      "samples": 30,
+      "correct": 12,
+      "accuracy": 0.4,
+      "elapsed_sec": 915.382
+    },
+    {
+      "subject": "Math",
+      "samples": 30,
+      "correct": 16,
+      "accuracy": 0.5333333333333333,
+      "elapsed_sec": 455.12
+    },
+    {
+      "subject": "Mechanical_Engineering",
+      "samples": 30,
+      "correct": 14,
+      "accuracy": 0.4666666666666667,
+      "elapsed_sec": 679.493
+    },
+    {
+      "subject": "Music",
+      "samples": 30,
+      "correct": 11,
+      "accuracy": 0.36666666666666664,
+      "elapsed_sec": 493.717
+    },
+    {
+      "subject": "Pharmacy",
+      "samples": 30,
+      "correct": 24,
+      "accuracy": 0.8,
+      "elapsed_sec": 240.931
+    },
+    {
+      "subject": "Physics",
+      "samples": 30,
+      "correct": 20,
+      "accuracy": 0.6666666666666666,
+      "elapsed_sec": 292.938
+    },
+    {
+      "subject": "Psychology",
+      "samples": 30,
+      "correct": 22,
+      "accuracy": 0.7333333333333333,
+      "elapsed_sec": 144.341
+    },
+    {
+      "subject": "Public_Health",
+      "samples": 30,
+      "correct": 26,
+      "accuracy": 0.8666666666666667,
+      "elapsed_sec": 240.388
+    },
+    {
+      "subject": "Sociology",
+      "samples": 30,
+      "correct": 20,
+      "accuracy": 0.6666666666666666,
+      "elapsed_sec": 52.787
+    }
+  ]
+}
