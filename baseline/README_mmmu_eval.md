@@ -6,6 +6,8 @@ fine-tuning 후에도 **`--model_path`만 바꿔서 같은 커맨드로 다시 �
 
 ## 실행 (한 커맨드)
 
+모든 명령은 저장소의 `baseline/` 폴더에서 실행한다 (`cd baseline`).
+
 ```bash
 pip install -r requirements.txt
 export HF_TOKEN=...   # judge(Llama-3.1-8B-Instruct)가 gated 모델이라 필요 (HF에서 라이선스 동의 먼저)
