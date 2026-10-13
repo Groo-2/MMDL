@@ -9,8 +9,8 @@ MMMU validation Music 30문항을 이미지 토큰 441 / 784 / 1,568 / 3,920개�
 | OS | Linux 또는 Windows **WSL2(Ubuntu)**. vLLM은 Windows에서 바로 실행되지 않음 |
 | GPU | RTX 4090 24GB, 다른 프로세스가 GPU를 쓰지 않는 상태 |
 | 드라이버 | `nvidia-smi`의 **CUDA Version 13.0 이상** (vLLM 0.27.1이 CUDA 13.0용 torch를 설치함) |
-| 디스크 | 여유 약 40GB (Qwen 약 9GB + Llama judge 약 16GB + vLLM/torch 패키지 + MMMU Music) |
-| HF 계정 | `meta-llama/Llama-3.1-8B-Instruct` 라이선스 동의 + Read 토큰 |
+| 디스크 | 여유 약 40GB (Qwen 약 9GB + Llama judge 약 16GB + vLLM/torch 패키지 + MMMU Music). 기본 설정(`USE_JUDGE = False`)에서는 judge를 받지 않으므로 약 25GB |
+| HF 계정 | judge를 켤 때만(`USE_JUDGE = True`) `meta-llama/Llama-3.1-8B-Instruct` 라이선스 동의 + Read 토큰 |
 
 ## 1. 코드 받기
 ```bash
