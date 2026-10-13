@@ -30,16 +30,13 @@ python -c "import torch, vllm; print(torch.__version__, torch.cuda.is_available(
 마지막 줄에 `True`와 `0.27.1`이 나오면 정상.
 
 ## 3. HF 토큰 설정
-```bash
-export HF_TOKEN=hf_xxxxxxxx      # 본인 토큰. 파일이나 노트북에 적지 말 것
-```
+.env 파일에서 관리
 
 ## 4. 실행
 실행 시간이 길어서(약 2~4시간) 연결이 끊겨도 계속 돌도록 **tmux 안에서 실행하는 것을 권장**한다.
 ```bash
 tmux new -s music
 conda activate mmdl
-export HF_TOKEN=hf_xxxxxxxx
 cd MMDL
 jupyter nbconvert --to notebook --execute experiments/music_resolution_4090.ipynb \
   --output music_resolution_4090_run.ipynb --ExecutePreprocessor.timeout=-1
