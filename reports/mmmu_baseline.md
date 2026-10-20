@@ -5,6 +5,8 @@
 - **작성일**: 2026-09-29
 - **재현 커맨드**: `cd baseline && bash scripts/run_mmmu_eval.sh --model_path Qwen/Qwen3-VL-4B-Instruct --model_revision ebb281ec70b05090aa6165b016eac8ec08e71b17 --data_root <MMMU_데이터경로> --output_dir ./results/baseline_mmmu_pro_cot` (judge 모델이 gated라 `HF_TOKEN` 필요, §1 참고)
 
+> **용어**: 이 보고서의 **Baseline**은 **Run B**(MMMU-Pro 공식 CoT 프롬프트)다. **Run A**는 baseline을 정하기 위해 먼저 돌린 **첫 실험**(팀 GitHub 프롬프트 사용, 나머지 조건은 Baseline과 동일)이다. 두 실행의 비교는 [baseline/reports/baseline_decision.md](../baseline/reports/baseline_decision.md)에 있다.
+
 ---
 
 ## 1. 환경 / 재현성
@@ -72,7 +74,7 @@ Answer the preceding question. The last line of your response should be of the f
 - **선택 이유**:
   - 벤치마크 제작진이 공개한 CoT 프롬프트라 출처가 분명하고, 이후 MMMU-Pro 평가에도 같은 계열을 그대로 쓸 수 있다.
   - 최종 답 형식(`Answer: $LETTER`)이 고정돼 있어 파싱 규칙(§4)을 일관되게 적용할 수 있다.
-  - 팀이 처음 쓰던 프롬프트(Run A, `Keep the reasoning concise`)와 나머지 조건을 같게 비교했더니 점수 차이가 유의하지 않았다(McNemar p = 0.756). 그래서 출처가 분명한 이 프롬프트를 채택했다. 비교 과정은 [baseline/reports/baseline_decision.md](../baseline/reports/baseline_decision.md) 참고.
+  - Baseline을 정하기 위한 첫 실험(Run A, 팀 GitHub 프롬프트 `Keep the reasoning concise`)과 나머지 조건을 같게 비교했더니 점수 차이가 유의하지 않았다(McNemar p = 0.756). 그래서 출처가 분명한 이 프롬프트를 Baseline(Run B)으로 채택했다. 비교 과정은 [baseline/reports/baseline_decision.md](../baseline/reports/baseline_decision.md) 참고.
   - 단점: `Think step by step`이 일부 문항에서 반복 루프를 유발해 응답이 잘리는 경우가 있다(§7).
 
 ---
@@ -106,7 +108,7 @@ Answer the preceding question. The last line of your response should be of the f
 | 이미지 인코딩 | JPEG 품질 95 |
 
 **선택 근거**:
-- **max_new_tokens = 32,768**: Qwen 공식값이다. 처음 쓰던 설정(4,096 토큰, seed 3407, 팀 GitHub 프롬프트)에서는 900문항 중 128문항(14%)이 4,096 토큰에서 잘렸고, 파싱 실패 129건 중 128건이 잘린 응답이었다. 정답 잘림이 점수에 직접 영향을 주므로 공식값으로 올렸다. 그래도 최종 설정(Run B)에서 108문항(12.0%)이 32,768 토큰 상한까지 생성했다(`finish_reason=length`, 정답률 약 7%). 대가로 추론 시간이 232.7분 걸렸다.
+- **max_new_tokens = 32,768**: Qwen 공식값이다. 처음 쓰던 설정(4,096 토큰, seed 3407, 팀 GitHub 프롬프트)에서는 900문항 중 128문항(14%)이 4,096 토큰에서 잘렸고, 파싱 실패 129건 중 128건이 잘린 응답이었다. 정답 잘림이 점수에 직접 영향을 주므로 공식값으로 올렸다. 그래도 Baseline(Run B)에서 108문항(12.0%)이 32,768 토큰 상한까지 생성했다(`finish_reason=length`, 정답률 약 7%). 대가로 추론 시간이 232.7분 걸렸다.
 - **max_model_len = 40,960**: 생성 32,768 + 최대 프롬프트 약 5.7K 토큰을 담는 값이다. 공식은 128,000이지만, 4B 모델의 KV cache가 토큰당 약 0.14 MiB(36층 × KV head 8 × 128 × bf16 × K,V)라 128,000 토큰이면 약 17.6GiB가 필요해 RTX 4090(24GB)에서 서버를 띄우기 어렵다고 산정했다. 40,960이면 최대 길이 응답 1개가 약 5.3GiB다. (4090 실행은 이 baseline에서 실측하지 않았다. A100에서만 측정했다.)
 - **이미지 해상도**: Qwen 공식 `build_mmmu_prompt()`와 같은 값이다. 도표·수식 비중이 큰 MMMU에서 글자·숫자 정보가 줄어드는 것을 막으려고 낮추지 않았다.
 - **속도/VRAM trade-off**: A100 40GB에서 `--gpu-memory-utilization 0.90`, 동시 요청 32로 실행했다. 위 KV cache 산정으로는 최대 길이 응답을 4개 이상 동시에 담을 수 있다.
@@ -167,7 +169,7 @@ Final answer:
 - 공식 MMMU `eval_open()`은 응답 어디에든 정답 문자열이 나오면 정답으로 친다. 최종 답이 틀렸는데도 정답 처리된 경우가 8건이었다.
 - 공식 객관식 파서는 답을 못 찾으면 응답 전체에서 글자를 찾고, 그래도 없으면 `random.choice`로 고른다. 잘린 응답에서 찍어 맞힌 경우와 랜덤 선택이 14건이었다.
 
-**Run B 실측 통계**: rule 실패 112/900(12.4%) → judge가 살린 것 16건 → 최종 미해결 96건(10.7%)은 오답 처리. rule만으로 61.78%, judge까지 합치면 62.56%이다.
+**Baseline(Run B) 실측 통계**: rule 실패 112/900(12.4%) → judge가 살린 것 16건 → 최종 미해결 96건(10.7%)은 오답 처리. rule만으로 61.78%, judge까지 합치면 62.56%이다.
 
 ---
 
@@ -228,7 +230,7 @@ Final answer:
 **격차(−4.84%p, 약 44문항)의 가장 큰 원인은 응답 잘림(반복 루프)이라고 판단한다.**
 
 1. **잘림**: 108문항(12.0%)이 max_new_tokens 32,768에 도달했고(`finish_reason=length`) 정답률은 약 7%다. 최종 `Answer:` 줄이 없어 rule 파서가 실패하고(rule 실패 112건), judge가 살린 것은 16건뿐이다. 처음 4,096토큰으로 돌렸을 때도 파싱 실패 129건 중 128건이 잘린 응답이었다. 즉 "잘림"과 "파싱 실패"는 별개 원인이 아니라 같은 현상이다.
-2. **프롬프트(추가 실험)**: 나머지 조건을 같게 두고 팀 GitHub 프롬프트(Run A, "Keep the reasoning concise")와 비교했다. A 63.11%(568/900), 채택한 B 62.56%(563/900)로 5문항 차이이고 McNemar p=0.756이라 유의하지 않다. 잘림은 A 70건, B 108건이며 B는 Music 15건, Architecture 16건에 몰렸다. 둘 다 끝까지 답한 765문항에서는 B 71.1%가 A 69.5%보다 높다. 프롬프트의 추론 품질이 아니라 루프 빈도가 차이를 만든다.
+2. **프롬프트(추가 실험)**: 나머지 조건을 같게 두고 첫 실험(Run A, 팀 GitHub 프롬프트 "Keep the reasoning concise")과 비교했다. 첫 실험 63.11%(568/900), Baseline 62.56%(563/900)로 5문항 차이, McNemar p=0.756이라 유의하지 않다. 잘림은 첫 실험 70건, Baseline 108건이고 Baseline은 Music 15건, Architecture 16건에 몰렸다. 둘 다 끝까지 답한 765문항에서는 Baseline 71.1%가 첫 실험 69.5%보다 높아, 차이는 추론 품질이 아니라 루프 빈도에서 나온다.
 3. **샘플링 노이즈**: temperature 0.7이라 900문항 1회 측정의 95% 신뢰구간이 약 ±3.1%p다. 격차 4.84%p가 이 폭과 비슷한 수준이어서 전부를 구조적 원인으로 단정하지 않는다.
 4. **채점(가설)**: 처음 GitHub 파서는 잘린 응답도 추정해서 채점했고(562/900), 같은 응답을 우리 파서로(judge 없이) 다시 채점하면 534/900으로 28문항 줄었다. 공식 평가가 비슷하게 관대한 파서를 썼다면 우리 수치가 낮게 나올 수 있다. 확인하지는 못했다.
 

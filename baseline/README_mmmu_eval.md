@@ -31,7 +31,7 @@ bash scripts/run_mmmu_eval.sh \
 ```
 mmmu_eval/
 ├── run_mmmu_eval.py   # infer / judge / score 서브커맨드, 고정값(모델, 데이터 revision, sampling recipe)
-├── prompting.py       # 프롬프트: mmmu_pro_cot(기본), github_cot(비교 실험용)
+├── prompting.py       # 프롬프트: mmmu_pro_cot(기본), github_cot(첫 실험 Run A용)
 ├── parsing.py         # 혼합 파서 rule 단계 ('Answer:' 줄 추출 + 주관식 비교)
 └── judge_utils.py     # 혼합 파서 judge 단계 (Llama-3.1-8B-Instruct)
 scripts/
@@ -105,9 +105,11 @@ Answer the preceding multiple choice question. The last line of your response sh
 - 공식 객관식 파서는 답을 못 찾으면 응답 전체에서 글자를 찾고, 그래도 없으면 `random.choice`로 고른다 → 잘린 응답에서 찍어 맞힌 경우와 랜덤 14건
 
 ## Baseline 결정 절차
+용어: **Baseline = Run B**(`mmmu_pro_cot`), **Run A = 첫 실험**(`github_cot`, Baseline을 정하기 위해 먼저 돌린 실행). 두 실행의 비교는 `reports/baseline_decision.md`에 있다.
+
 1. 스모크(`--limit 2`)로 속도와 VRAM 실측
-2. `--prompt mmmu_pro_cot`로 900문항 전체 실행
-3. 비교: GitHub 원래 62.44% / `rescore_github.py` 결과 / 2번 결과. 선택 사항: `--prompt github_cot`로 다른 조건을 같게 두고 실행(Run A)
+2. `--prompt mmmu_pro_cot`로 900문항 전체 실행 (Baseline, Run B)
+3. 비교: GitHub 원래 62.44% / `rescore_github.py` 결과 / 2번 결과. 선택 사항: `--prompt github_cot`로 다른 조건을 같게 두고 실행한 것이 첫 실험(Run A)
 4. 최종 baseline을 정한 뒤 프롬프트, 파서, judge, 생성 설정을 **동결**한다(fine-tuning 재평가 때 그대로 재사용)
 
 ## GPU 메모리 참고
