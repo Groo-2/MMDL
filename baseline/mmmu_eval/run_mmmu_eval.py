@@ -1,7 +1,7 @@
 """Qwen3-VL-4B-Instruct MMMU validation 평가.
 
 팀 GitHub(Groo-2/MMDL, qwen-mmmu-62-44) code/run_mmmu_reasoning_4096.py를 바탕으로 다시 구성했다.
-원본은 legacy/run_mmmu_reasoning_4096.orig.py에 보관.
+원본은 같은 저장소의 qwen-mmmu-62-44 브랜치(code/run_mmmu_reasoning_4096.py)에 있다.
 
 원본 대비 바뀐 점 (assignment_guidance.md 기준)
   - seed 3407 → 42                                 (§1.3: Qwen 공식 recipe)

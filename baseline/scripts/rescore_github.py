@@ -2,9 +2,11 @@
 
 GPU가 필요 없다. baseline 비교표에서 "파서 차이"와 "프롬프트/생성 설정 차이"를 분리하는 기준선으로 쓴다.
 
+--predictions에는 같은 저장소 qwen-mmmu-62-44 브랜치의 results/predictions.jsonl을 내려받아 넘긴다.
+
 사용법:
   python scripts/rescore_github.py \
-    --predictions legacy/github_predictions.jsonl \
+    --predictions <qwen-mmmu-62-44 브랜치의 results/predictions.jsonl 경로> \
     --data-root /path/to/hf_cache/mmmu \
     --output results/github_rescored.json
 """

@@ -19,6 +19,7 @@ bash scripts/run_mmmu_eval.sh \
   --output_dir results/baseline_mmmu_pro_cot
 ```
 
+- `--model_path`가 `Qwen/Qwen3-VL-4B-Instruct`이면 `--model_revision`을 빼도 위 고정 revision으로 자동 pin된다
 - fine-tuning 체크포인트: `--model_path /path/to/ckpt`로 바꾸고 `--model_revision`은 빼면 된다
 - 스모크 테스트: `--limit 2`(과목당 2문항) 또는 `--subject Accounting --limit 2`. **baseline 수치로 쓸 수 없음**
 - 중간에 끊기면 **같은 커맨드를 다시 실행**하면 된다. 끝난 문항은 건너뛴다(resume)
@@ -37,6 +38,8 @@ scripts/
 ├── run_mmmu_eval.sh   # 단일 진입점: 모델 서버 → infer → judge 서버 → judge → score
 └── rescore_github.py  # 팀 GitHub baseline(562/900) 응답을 혼합 파서로 다시 채점 (GPU 불필요)
 ```
+
+팀 GitHub 원본(스크립트 `code/run_mmmu_reasoning_4096.py`, 응답 `results/predictions.jsonl`)은 이 저장소의 `qwen-mmmu-62-44` 브랜치에 있다. `rescore_github.py`의 `--predictions`에 그 응답 파일 경로를 넘긴다.
 
 ## 산출물 (`--output_dir`)
 

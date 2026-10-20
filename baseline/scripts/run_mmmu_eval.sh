@@ -62,6 +62,13 @@ done
 : "${DATA_ROOT:?--data_root is required}"
 : "${OUTPUT_DIR:?--output_dir is required}"
 
+# assignment_guidance.md §1.1: 공식 repo id로 실행할 때는 revision을 항상 pin한다 (--model_revision을 빼먹어도 최신이 아니라 고정 revision을 받는다).
+# 체크포인트 경로(fine-tuning 결과)는 revision이 없으므로 그대로 둔다.
+if [[ "$MODEL_PATH" == "Qwen/Qwen3-VL-4B-Instruct" && -z "$MODEL_REVISION" ]]; then
+  MODEL_REVISION="ebb281ec70b05090aa6165b016eac8ec08e71b17"
+  echo "[info] --model_revision 생략: Qwen/Qwen3-VL-4B-Instruct는 고정 revision($MODEL_REVISION)으로 받습니다."
+fi
+
 mkdir -p "$OUTPUT_DIR" "$DATA_ROOT"
 
 SCOPE_ARGS=(--all)
