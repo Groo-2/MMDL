@@ -102,7 +102,7 @@ def main():
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--lora-r", type=int, default=64)
     parser.add_argument("--lora-alpha", type=int, default=128)
-    parser.add_argument("--vllm-mem", type=float, default=0.30)
+    parser.add_argument("--vllm-mem", type=float, default=0.45)
     parser.add_argument("--save-steps", type=int, default=10)
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
     parser.add_argument("--resume", action="store_true")
@@ -184,7 +184,7 @@ def main():
         vllm_mode="colocate",
         vllm_gpu_memory_utilization=args.vllm_mem,
         vllm_enable_sleep_mode=True,
-        vllm_max_model_length=16384,
+        vllm_max_model_length=12288,  # 가장 긴 프롬프트 약 5.5k + completion 4096
         logging_steps=1,
         save_strategy="steps",
         save_steps=args.save_steps,
