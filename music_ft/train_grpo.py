@@ -45,6 +45,53 @@ SEED = 42
 NUM_GENERATIONS = 8  # 논문: rollout 8
 
 
+def patch_vision_patch_embed():
+    """Qwen3-VL 비전 패치 임베딩(Conv3d, kernel == stride)을 수학적으로 같은 Linear로 바꾼다.
+
+    Colab에서 vLLM이 설치한 torch와 cuDNN 하위 라이브러리 버전이 어긋나 conv3d가 실패했고
+    (CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH), cuDNN을 끄면 conv3d가 매우 느려질 수 있다.
+    커널과 스트라이드가 같은 conv는 패치를 펼친 벡터와 가중치의 행렬곱이므로 Linear로 바꿔도 결과가 같다.
+    """
+    import torch.nn.functional as F
+    from transformers.models.qwen3_vl import modeling_qwen3_vl as m
+
+    def forward(self, hidden_states):
+        weight = self.proj.weight
+        flat = hidden_states.reshape(-1, self.in_channels * self.temporal_patch_size * self.patch_size ** 2)
+        return F.linear(flat.to(dtype=weight.dtype), weight.reshape(self.embed_dim, -1), self.proj.bias)
+
+    m.Qwen3VLVisionPatchEmbed.forward = forward
+
+
+class Heartbeat:
+    """한 스텝이 끝나기 전에는 tqdm이 갱신되지 않으므로, micro-batch 진행을 주기적으로 출력한다."""
+
+    def __new__(cls):
+        import time
+        from transformers import TrainerCallback
+
+        class _Callback(TrainerCallback):
+            def __init__(self):
+                self.t0 = time.time()
+                self.micro = 0
+
+            def on_step_begin(self, args, state, control, **kwargs):
+                self.micro = 0
+                self.step_t0 = time.time()
+                print(f"[heartbeat] step {state.global_step + 1} 시작 (rollout 포함, 경과 {time.time() - self.t0:.0f}s)", flush=True)
+
+            def on_substep_end(self, args, state, control, **kwargs):
+                self.micro += 1
+                if self.micro % 8 == 0:
+                    print(f"[heartbeat] step {state.global_step + 1}: micro-batch {self.micro}/{args.gradient_accumulation_steps}, "
+                          f"스텝 경과 {time.time() - self.step_t0:.0f}s", flush=True)
+
+            def on_step_end(self, args, state, control, **kwargs):
+                print(f"[heartbeat] step {state.global_step} 완료, 스텝 시간 {time.time() - self.step_t0:.0f}s", flush=True)
+
+        return _Callback()
+
+
 def jpeg_q95(src, dst):
     """평가 파이프라인(prompting.image_to_data_url)과 같이 RGB → JPEG quality 95로 한 번 거친다."""
     from PIL import Image
@@ -148,20 +195,7 @@ def main():
     if not MIN_PIXELS // 1024 <= probe_tokens <= MAX_PIXELS // 1024:
         raise SystemExit("min_pixels/max_pixels가 image processor에 적용되지 않았다. 평가와 해상도가 달라진다.")
 
-    # Qwen3-VL 비전 패치 임베딩은 conv3d다. vLLM이 설치한 torch와 Colab의 cuDNN 하위 라이브러리 버전이 어긋나면
-    # (CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH) 첫 rollout을 끝낸 뒤에야 실패하므로, 모델을 올리기 전에 먼저 확인한다.
-    # 실패하면 이 프로세스의 cuDNN을 끈다 (conv 한 층뿐이라 속도 손실은 작다).
-    x = torch.randn(2, 3, 2, 16, 16, device="cuda", dtype=torch.bfloat16)
-    conv = torch.nn.Conv3d(3, 8, (2, 16, 16), (2, 16, 16)).cuda().to(torch.bfloat16)
-    try:
-        conv(x)
-        print("conv3d 점검: cuDNN 정상")
-    except RuntimeError as e:
-        print("conv3d 점검: cuDNN 실패 → cuDNN 비활성화 |", str(e)[:90])
-        torch.backends.cudnn.enabled = False
-        conv(x)
-        print("conv3d 점검: cuDNN 없이 정상")
-    del x, conv
+    patch_vision_patch_embed()
 
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_REPO, revision=MODEL_REVISION, torch_dtype=torch.bfloat16
@@ -220,6 +254,7 @@ def main():
         args=config,
         train_dataset=dataset,
         peft_config=peft_config,
+        callbacks=[Heartbeat()],
     )
 
     # --resume: 체크포인트가 있으면 이어서, 없으면 처음부터 (HF는 True를 주고 체크포인트가 없으면 에러를 낸다)
