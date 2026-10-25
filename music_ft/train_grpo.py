@@ -111,6 +111,7 @@ def main():
     import torch
     from peft import LoraConfig
     from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+    from transformers.trainer_utils import get_last_checkpoint
     from trl import GRPOConfig, GRPOTrainer
 
     data_dir = Path(args.data_dir)
@@ -202,7 +203,10 @@ def main():
         peft_config=peft_config,
     )
 
-    trainer.train(resume_from_checkpoint=args.resume or None)
+    # --resume: 체크포인트가 있으면 이어서, 없으면 처음부터 (HF는 True를 주고 체크포인트가 없으면 에러를 낸다)
+    last = get_last_checkpoint(str(output_dir)) if args.resume else None
+    print("이어서 학습:" if last else "처음부터 학습", last or "")
+    trainer.train(resume_from_checkpoint=last)
     trainer.save_model(str(output_dir / "final_lora"))
     print("완료:", output_dir / "final_lora")
 
