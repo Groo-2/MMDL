@@ -144,6 +144,21 @@ def main():
     if not MIN_PIXELS // 1024 <= probe_tokens <= MAX_PIXELS // 1024:
         raise SystemExit("min_pixels/max_pixels가 image processor에 적용되지 않았다. 평가와 해상도가 달라진다.")
 
+    # Qwen3-VL 비전 패치 임베딩은 conv3d다. vLLM이 설치한 torch와 Colab의 cuDNN 하위 라이브러리 버전이 어긋나면
+    # (CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH) 첫 rollout을 끝낸 뒤에야 실패하므로, 모델을 올리기 전에 먼저 확인한다.
+    # 실패하면 이 프로세스의 cuDNN을 끈다 (conv 한 층뿐이라 속도 손실은 작다).
+    x = torch.randn(2, 3, 2, 16, 16, device="cuda", dtype=torch.bfloat16)
+    conv = torch.nn.Conv3d(3, 8, (2, 16, 16), (2, 16, 16)).cuda().to(torch.bfloat16)
+    try:
+        conv(x)
+        print("conv3d 점검: cuDNN 정상")
+    except RuntimeError as e:
+        print("conv3d 점검: cuDNN 실패 → cuDNN 비활성화 |", str(e)[:90])
+        torch.backends.cudnn.enabled = False
+        conv(x)
+        print("conv3d 점검: cuDNN 없이 정상")
+    del x, conv
+
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_REPO, revision=MODEL_REVISION, torch_dtype=torch.bfloat16
     )
