@@ -1,0 +1,10 @@
+# GRPO 학습용 (Colab A100). 평가용 requirements.txt와 같은 vLLM 버전을 쓴다.
+# TRL 1.16.0은 vLLM 0.22.0~0.31.0을 지원한다. 설치 후 `pip freeze > requirements_train.lock.txt`로 고정해서 보고서에 첨부할 것.
+vllm==0.27.1
+trl==1.16.0
+peft
+datasets>=4.7.0
+huggingface_hub
+Pillow
+pyarrow
+numpy
