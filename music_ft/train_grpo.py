@@ -58,6 +58,12 @@ class Heartbeat:
                 self.micro = 0
 
             def on_step_begin(self, args, state, control, **kwargs):
+                # 이전 스텝의 학습이 잡아 둔 캐시 메모리를 돌려줘야 vLLM이 깨어날 때(wake_up) 메모리 부족이 나지 않는다
+                import gc
+                import torch
+
+                gc.collect()
+                torch.cuda.empty_cache()
                 self.micro = 0
                 self.step_t0 = time.time()
                 print(f"[heartbeat] step {state.global_step + 1} 시작 (rollout 포함, 경과 {time.time() - self.t0:.0f}s)", flush=True)
@@ -125,13 +131,13 @@ def main():
     parser.add_argument("--output-dir", required=True, help="Drive 경로 권장. 체크포인트가 여기에 저장된다")
     parser.add_argument("--train-file", default="train.dedup.jsonl")
     parser.add_argument("--max-steps", type=int, required=True)
-    parser.add_argument("--prompts-per-step", type=int, default=16, help="스텝당 문항 수 (논문 128)")
+    parser.add_argument("--prompts-per-step", type=int, default=8, help="스텝당 문항 수 (논문 128)")
     parser.add_argument("--micro-batch", type=int, default=2, help="GPU 한 번에 처리하는 completion 수")
-    parser.add_argument("--max-completion-length", type=int, default=4096)
+    parser.add_argument("--max-completion-length", type=int, default=2048)
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--lora-r", type=int, default=64)
     parser.add_argument("--lora-alpha", type=int, default=128)
-    parser.add_argument("--vllm-mem", type=float, default=0.45)
+    parser.add_argument("--vllm-mem", type=float, default=0.35)
     parser.add_argument("--save-steps", type=int, default=10)
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
     parser.add_argument("--resume", action="store_true")
@@ -207,8 +213,7 @@ def main():
         seed=SEED,
         bf16=True,
         learning_rate=args.learning_rate,
-        lr_scheduler_type="constant_with_warmup",
-        warmup_steps=3,
+        lr_scheduler_type="constant",
         per_device_train_batch_size=args.micro_batch,
         gradient_accumulation_steps=grad_accum,
         gradient_checkpointing=True,
@@ -228,13 +233,16 @@ def main():
         vllm_mode="colocate",
         vllm_gpu_memory_utilization=args.vllm_mem,
         vllm_enable_sleep_mode=True,
-        vllm_max_model_length=12288,  # 가장 긴 프롬프트 약 5.5k + completion 4096
+        vllm_max_model_length=args.max_completion_length + 6144,  # 가장 긴 프롬프트 약 5.5k + completion
+        # TRL 기본값(sequence_mask)은 vLLM과 학습 모델의 logprob 차이를 시퀀스 전체 곱으로 보정해서, 긴 응답에서
+        # 비율이 1e-22까지 떨어져 손실과 grad_norm이 0이 된다(2026-10-25 파일럿 확인). 논문도 이런 보정은 쓰지 않았다.
+        # 끄면 old logprob를 다시 계산하는 forward도 생략되어 스텝이 빨라진다.
+        vllm_importance_sampling_correction=False,
         logging_steps=1,
         save_strategy="steps",
         save_steps=args.save_steps,
         save_total_limit=3,
-        log_completions=True,
-        num_completions_to_print=2,
+        log_completions=False,
         report_to="none",
     )
 
