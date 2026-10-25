@@ -1,4 +1,8 @@
-"""SSMR-Bench Train_visual로 Qwen3-VL-4B-Instruct를 GRPO(LoRA) 학습한다. Colab A100 40GB 기준.
+"""SSMR-Bench Train_visual로 Qwen3-VL-4B-Instruct를 GRPO(LoRA) 학습한다.
+
+기본은 실습실 RTX 4090 24GB(--rollout hf): rollout을 HF generate로 한다. 24GB에서는 학습 모델(약 9GB) + 옵티마이저(약 2GB)와
+vLLM 사본(약 9GB)을 동시에 올릴 수 없어서(KV cache가 1GB 안팎만 남는다) vLLM colocate를 쓰지 않는다. 느리지만 모델 사본이 하나뿐이라
+메모리가 안정적이다. A100 40GB 이상이면 --rollout vllm (colocate)도 쓸 수 있다.
 
 SSMR-Bench 논문(§3.1)의 설정을 따른다: rollout 8, KL 없음(beta=0), 정답 보상만.
 논문과 다른 점은 README/계획서 참고 (동결 프롬프트, rule 파서 보상, LoRA, 작은 스텝당 문항 수).
@@ -6,15 +10,14 @@ SSMR-Bench 논문(§3.1)의 설정을 따른다: rollout 8, KL 없음(beta=0), �
 프롬프트는 mmmu_eval/prompting.py의 build_mmmu_pro_cot_text()를 그대로 쓴다. 평가와 같은 문구이고,
 평가의 OpenAI chat 형식(텍스트 먼저, 이미지는 등장 순서대로 뒤에)과 같은 순서로 메시지를 만든다.
 
-사용 예 (Colab)
-  python train_grpo.py --data-dir /content/ssmr --output-dir /content/drive/MyDrive/mmmu_project/grpo_run1 \
-      --max-steps 10 --prompts-per-step 16          # 파일럿
-  python train_grpo.py ... --max-steps 60 --resume    # 본 학습 (끊기면 --resume으로 이어서)
+사용 예 (실습실)
+  python music_ft/train_grpo.py --data-dir data/ssmr --output-dir results/grpo_run1 --max-steps 2   # 파일럿
+  python music_ft/train_grpo.py ... --max-steps 100 --resume                                         # 본 학습 (끊기면 --resume)
 """
 
 import argparse
-import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -125,43 +128,118 @@ def build_dataset(examples):
     return ds.cast_column("images", Sequence(Image()))  # 경로 → 접근할 때 PIL로 디코딩
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", required=True, help="build_ssmr.py 출력 폴더(dedupe 후 train.dedup.jsonl 사용)")
-    parser.add_argument("--output-dir", required=True, help="Drive 경로 권장. 체크포인트가 여기에 저장된다")
-    parser.add_argument("--train-file", default="train.dedup.jsonl")
-    parser.add_argument("--max-steps", type=int, required=True)
-    parser.add_argument("--prompts-per-step", type=int, default=8, help="스텝당 문항 수 (논문 128)")
-    parser.add_argument("--micro-batch", type=int, default=2, help="GPU 한 번에 처리하는 completion 수")
-    parser.add_argument("--max-completion-length", type=int, default=2048)
-    parser.add_argument("--learning-rate", type=float, default=2e-5)
-    parser.add_argument("--lora-r", type=int, default=64)
-    parser.add_argument("--lora-alpha", type=int, default=128)
-    parser.add_argument("--vllm-mem", type=float, default=0.35)
-    parser.add_argument("--save-steps", type=int, default=10)
-    parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
-    parser.add_argument("--resume", action="store_true")
-    args = parser.parse_args()
-
-    import torch
+def build_lora_config(args):
+    """LLM의 attention/MLP에만 LoRA. vision tower와 merger는 건드리지 않는다."""
     from peft import LoraConfig
-    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
-    from transformers.trainer_utils import get_last_checkpoint
-    from trl import GRPOConfig, GRPOTrainer
 
-    data_dir = Path(args.data_dir)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    return LoraConfig(
+        r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=0.0,
+        target_modules=r".*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)",
+        task_type="CAUSAL_LM",
+    )
+
+
+def build_grpo_config(args, output_dir, **overrides):
+    """학습 설정. main()과 로컬 테스트(tiny 모델)가 같은 설정을 쓴다."""
+    from trl import GRPOConfig
 
     completions_per_step = args.prompts_per_step * NUM_GENERATIONS
     if completions_per_step % args.micro_batch:
         raise SystemExit("prompts-per-step × 8 이 micro-batch의 배수여야 한다")
     grad_accum = completions_per_step // args.micro_batch
 
-    examples = load_examples(data_dir, Path("/content/ssmr_jpeg") if Path("/content").exists() else output_dir / "jpeg",
-                             args.train_file, args.limit)
+    kwargs = dict(
+        output_dir=str(output_dir),
+        max_steps=args.max_steps,
+        seed=SEED,
+        bf16=True,
+        learning_rate=args.learning_rate,
+        lr_scheduler_type="constant",
+        per_device_train_batch_size=args.micro_batch,
+        gradient_accumulation_steps=grad_accum,
+        gradient_checkpointing=True,
+        # 논문: rollout 8, KL 없음, 정답 보상만
+        num_generations=NUM_GENERATIONS,
+        beta=0.0,
+        loss_type="grpo",
+        # 동결 평가 sampling 중 HF generate가 지원하는 것 (temperature, top_p, top_k)
+        temperature=TEMPERATURE,
+        top_p=TOP_P,
+        top_k=TOP_K,
+        repetition_penalty=1.0,
+        max_completion_length=args.max_completion_length,
+        logging_steps=1,
+        save_strategy="steps",
+        save_steps=args.save_steps,
+        save_total_limit=3,
+        log_completions=False,
+        report_to="none",
+    )
+
+    if args.rollout == "hf":
+        # 프롬프트 1개의 8개 completion(=generation batch 8)씩 생성한다. 이미지 5장짜리 프롬프트(약 5k토큰) × 8의 KV cache가
+        # 24GB 안에 들어가게 하려는 크기다. 최적화 스텝(grad_accum개 micro-batch)마다 prompts-per-step번 생성한다.
+        kwargs.update(
+            use_vllm=False,
+            steps_per_generation=NUM_GENERATIONS // args.micro_batch,
+        )
+        # presence_penalty(평가 sampling)는 HF generate가 지원하지 않아 rollout에서만 뺀다. 평가는 그대로 동결 recipe를 쓴다.
+    else:
+        kwargs.update(
+            use_vllm=True,
+            vllm_mode="colocate",
+            vllm_gpu_memory_utilization=args.vllm_mem,
+            vllm_enable_sleep_mode=True,
+            vllm_max_model_length=args.max_completion_length + 6144,
+            generation_kwargs={"presence_penalty": PRESENCE_PENALTY},
+            # TRL 기본값(sequence_mask)은 긴 응답에서 비율이 1e-22까지 떨어져 손실과 grad_norm이 0이 된다(2026-10-25 확인).
+            vllm_importance_sampling_correction=False,
+        )
+
+    kwargs.update(overrides)
+    return GRPOConfig(**kwargs)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", required=True, help="build_ssmr.py 출력 폴더(dedupe 후 train.dedup.jsonl 사용)")
+    parser.add_argument("--output-dir", required=True, help="체크포인트가 저장되는 폴더")
+    parser.add_argument("--train-file", default="train.dedup.jsonl")
+    parser.add_argument("--max-steps", type=int, required=True)
+    parser.add_argument("--prompts-per-step", type=int, default=8, help="스텝당 문항 수 (논문 128)")
+    parser.add_argument("--rollout", choices=["hf", "vllm"], default="hf", help="hf: 24GB용(기본), vllm: A100 40GB 이상 colocate")
+    parser.add_argument("--micro-batch", type=int, default=1, help="GPU 한 번에 처리하는 completion 수 (24GB는 1)")
+    parser.add_argument("--max-completion-length", type=int, default=2048)
+    parser.add_argument("--learning-rate", type=float, default=2e-5)
+    parser.add_argument("--lora-r", type=int, default=64)
+    parser.add_argument("--lora-alpha", type=int, default=128)
+    parser.add_argument("--vllm-mem", type=float, default=0.35, help="--rollout vllm일 때만")
+    parser.add_argument("--save-steps", type=int, default=10)
+    parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args()
+
+    import torch
+    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+    from transformers.trainer_utils import get_last_checkpoint
+    from trl import GRPOTrainer
+
+    data_dir = Path(args.data_dir)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.rollout == "hf":
+        # vLLM sleep mode와 충돌하므로 vLLM을 쓰지 않을 때만 단편화를 줄인다
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    config = build_grpo_config(args, output_dir)
+
+    examples = load_examples(data_dir, output_dir / "jpeg", args.train_file, args.limit)
     dataset = build_dataset(examples)
-    print(f"학습 문항 {len(dataset)}개, 스텝당 {args.prompts_per_step}문항 × {NUM_GENERATIONS} = {completions_per_step} completion")
+    print(f"학습 문항 {len(dataset)}개, 스텝당 {args.prompts_per_step}문항 × {NUM_GENERATIONS} = "
+          f"{args.prompts_per_step * NUM_GENERATIONS} completion | rollout={args.rollout}")
 
     processor = AutoProcessor.from_pretrained(MODEL_REPO, revision=MODEL_REVISION)
     # 평가(vLLM)와 같은 이미지 해상도. qwen-vl-finetune/data_processor.py와 같은 방식으로 설정한다.
@@ -198,53 +276,7 @@ def main():
         MODEL_REPO, revision=MODEL_REVISION, torch_dtype=torch.bfloat16
     )
 
-    # LLM의 attention/MLP에만 LoRA. vision tower와 merger는 건드리지 않는다.
-    peft_config = LoraConfig(
-        r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-        lora_dropout=0.0,
-        target_modules=r".*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)",
-        task_type="CAUSAL_LM",
-    )
-
-    config = GRPOConfig(
-        output_dir=str(output_dir),
-        max_steps=args.max_steps,
-        seed=SEED,
-        bf16=True,
-        learning_rate=args.learning_rate,
-        lr_scheduler_type="constant",
-        per_device_train_batch_size=args.micro_batch,
-        gradient_accumulation_steps=grad_accum,
-        gradient_checkpointing=True,
-        # 논문: rollout 8, KL 없음, 정답 보상만
-        num_generations=NUM_GENERATIONS,
-        beta=0.0,
-        loss_type="grpo",
-        # 동결 sampling (평가와 동일)
-        temperature=TEMPERATURE,
-        top_p=TOP_P,
-        top_k=TOP_K,
-        repetition_penalty=1.0,
-        generation_kwargs={"presence_penalty": PRESENCE_PENALTY},
-        max_completion_length=args.max_completion_length,
-        # vLLM colocate: 학습 모델과 같은 GPU에서 rollout
-        use_vllm=True,
-        vllm_mode="colocate",
-        vllm_gpu_memory_utilization=args.vllm_mem,
-        vllm_enable_sleep_mode=True,
-        vllm_max_model_length=args.max_completion_length + 6144,  # 가장 긴 프롬프트 약 5.5k + completion
-        # TRL 기본값(sequence_mask)은 vLLM과 학습 모델의 logprob 차이를 시퀀스 전체 곱으로 보정해서, 긴 응답에서
-        # 비율이 1e-22까지 떨어져 손실과 grad_norm이 0이 된다(2026-10-25 파일럿 확인). 논문도 이런 보정은 쓰지 않았다.
-        # 끄면 old logprob를 다시 계산하는 forward도 생략되어 스텝이 빨라진다.
-        vllm_importance_sampling_correction=False,
-        logging_steps=1,
-        save_strategy="steps",
-        save_steps=args.save_steps,
-        save_total_limit=3,
-        log_completions=False,
-        report_to="none",
-    )
+    peft_config = build_lora_config(args)
 
     trainer = GRPOTrainer(
         model=model,
