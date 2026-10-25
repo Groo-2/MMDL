@@ -45,24 +45,6 @@ SEED = 42
 NUM_GENERATIONS = 8  # 논문: rollout 8
 
 
-def patch_vision_patch_embed():
-    """Qwen3-VL 비전 패치 임베딩(Conv3d, kernel == stride)을 수학적으로 같은 Linear로 바꾼다.
-
-    Colab에서 vLLM이 설치한 torch와 cuDNN 하위 라이브러리 버전이 어긋나 conv3d가 실패했고
-    (CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH), cuDNN을 끄면 conv3d가 매우 느려질 수 있다.
-    커널과 스트라이드가 같은 conv는 패치를 펼친 벡터와 가중치의 행렬곱이므로 Linear로 바꿔도 결과가 같다.
-    """
-    import torch.nn.functional as F
-    from transformers.models.qwen3_vl import modeling_qwen3_vl as m
-
-    def forward(self, hidden_states):
-        weight = self.proj.weight
-        flat = hidden_states.reshape(-1, self.in_channels * self.temporal_patch_size * self.patch_size ** 2)
-        return F.linear(flat.to(dtype=weight.dtype), weight.reshape(self.embed_dim, -1), self.proj.bias)
-
-    m.Qwen3VLVisionPatchEmbed.forward = forward
-
-
 class Heartbeat:
     """한 스텝이 끝나기 전에는 tqdm이 갱신되지 않으므로, micro-batch 진행을 주기적으로 출력한다."""
 
@@ -195,7 +177,16 @@ def main():
     if not MIN_PIXELS // 1024 <= probe_tokens <= MAX_PIXELS // 1024:
         raise SystemExit("min_pixels/max_pixels가 image processor에 적용되지 않았다. 평가와 해상도가 달라진다.")
 
-    patch_vision_patch_embed()
+    # Qwen3-VL 비전 패치 임베딩은 원래 구현(conv3d)을 그대로 쓴다. cuDNN이 깨져 있으면 첫 rollout을 돌리기 전에 멈춘다.
+    # (환경 문제는 diag_cudnn.py로 진단한다. 모델 구현을 바꾸거나 cuDNN을 끄지 않는다.)
+    probe_x = torch.randn(2, 3, 2, 16, 16, device="cuda", dtype=torch.bfloat16)
+    probe_conv = torch.nn.Conv3d(3, 8, (2, 16, 16), (2, 16, 16)).cuda().to(torch.bfloat16)
+    try:
+        probe_conv(probe_x)
+    except RuntimeError as e:
+        raise SystemExit(f"conv3d(cuDNN) 점검 실패: {str(e)[:120]}\n→ python diag_cudnn.py 로 원인을 확인하세요.")
+    print("conv3d 점검: cuDNN 정상")
+    del probe_x, probe_conv
 
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         MODEL_REPO, revision=MODEL_REVISION, torch_dtype=torch.bfloat16
