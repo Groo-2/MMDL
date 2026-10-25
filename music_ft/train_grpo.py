@@ -130,6 +130,10 @@ def main():
 
     processor = AutoProcessor.from_pretrained(MODEL_REPO, revision=MODEL_REVISION)
     # 평가(vLLM)와 같은 이미지 해상도. qwen-vl-finetune/data_processor.py와 같은 방식으로 설정한다.
+    # TRL은 prompt_ids를 왼쪽 패딩하지만 mm_token_type_ids는 이 프로세서로 다시 만든다. Qwen3-VL 토크나이저의 기본 패딩은
+    # 오른쪽이라, 길이가 다른 프롬프트(이미지 1장 vs 5장)가 한 배치에 있으면 이미지 토큰 표시가 밀려서
+    # get_rope_index에서 shape mismatch가 난다. 왼쪽으로 맞춘다.
+    processor.tokenizer.padding_side = "left"
     ip = processor.image_processor
     ip.min_pixels, ip.max_pixels = MIN_PIXELS, MAX_PIXELS
     ip.size = {"shortest_edge": MIN_PIXELS, "longest_edge": MAX_PIXELS}
