@@ -8,6 +8,7 @@ from pathlib import Path
 import zipfile
 
 from _layout import PROJECT_ROOT,Layout
+from baseline_contract import BASELINE_ROOT, assert_baseline
 
 
 def render_review(rows,path,title):
@@ -36,9 +37,13 @@ def add_package(path,blobs):
     checks=[]
     with zipfile.ZipFile(path,'x',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
         for rel,data in sorted(blobs.items()):
-            archive.writestr('music_theory_text_v2/'+rel,data)
+            archive.writestr('MMDL/music_theory/'+rel,data)
             checks.append(hashlib.sha256(data).hexdigest()+'  '+rel)
-        archive.writestr('music_theory_text_v2/03_기타/검증기록/SHA256SUMS.txt','\n'.join(checks)+'\n')
+        archive.writestr('MMDL/music_theory/03_기타/검증기록/SHA256SUMS.txt','\n'.join(checks)+'\n')
+        assert_baseline()
+        for file in sorted(BASELINE_ROOT.rglob('*')):
+            if file.is_file() and '__pycache__' not in file.parts and file.suffix != '.pyc':
+                archive.writestr('MMDL/baseline/'+file.relative_to(BASELINE_ROOT).as_posix(),file.read_bytes())
 
 
 def main():
@@ -61,7 +66,7 @@ def main():
     render_review(test,layout.test_review,'평가 담당자 전용: 최종 평가 300문항 검수')
     if not layout.human_review.exists():
         layout.human_review.parent.mkdir(parents=True,exist_ok=True)
-        review={'status':'pending','reviewer':None,'review_date':None,'release':'v2.1',
+        review={'status':'pending','reviewer':None,'review_date':None,'release':'v2.2',
                 'train_concept_review':'pending','train_stratified_sample_review':'pending',
                 'dev_review':'pending','test_review_by_eval_custodian':'pending','corrections':[]}
         layout.human_review.write_text(json.dumps(review,indent=2,ensure_ascii=False),encoding='utf-8')
@@ -73,9 +78,11 @@ def main():
         if not source.is_file():raise FileNotFoundError(source)
         mapping[relative]=source
     put('README.md',PROJECT_ROOT/'README.md')
+    put('.gitignore',PROJECT_ROOT/'.gitignore')
     for directory in ['01_학습용','02_평가용']:
         for file in (PROJECT_ROOT/directory).glob('*.py'):put(directory+'/'+file.name,file)
-    put('01_학습용/requirements-train.txt',PROJECT_ROOT/'01_학습용'/'requirements-train.txt')
+    for directory in ['01_학습용','02_평가용']:
+        for file in (PROJECT_ROOT/directory).glob('*.txt'):put(directory+'/'+file.name,file)
     for directory,pattern in [('03_기타/도구','*.py'),('03_기타/설치파일','*.txt'),('04_문서','*.md')]:
         for file in (PROJECT_ROOT/directory).glob(pattern):put(directory+'/'+file.name,file)
     for file in layout.training.glob('*.jsonl'):put('01_학습용/데이터/'+file.name,file)
@@ -97,17 +104,22 @@ def main():
     manifest['folder_layout']='roles_v1'
     layout.manifest.write_text(json.dumps(manifest,indent=2,ensure_ascii=False),encoding='utf-8')
     blobs={relative:file.read_bytes() for relative,file in mapping.items()}
+    if not layout.raw:
+        (layout.audit/'SHA256SUMS.txt').write_text(''.join(
+            hashlib.sha256(data).hexdigest()+'  '+relative+'\n'
+            for relative,data in sorted(blobs.items())),encoding='utf-8')
     archive_manifest=dict(manifest)
     archive_manifest['file_sha256']={relative:hashlib.sha256(data).hexdigest()
                                      for relative,data in blobs.items() if relative.endswith('.jsonl')}
     blobs['03_기타/검증기록/manifest.json']=json.dumps(archive_manifest,indent=2,ensure_ascii=False).encode()
 
-    shared={'README.md','03_기타/도구/_layout.py','03_기타/검증기록/manifest.json',
+    shared={'README.md','.gitignore','03_기타/도구/_layout.py','03_기타/도구/baseline_contract.py','03_기타/검증기록/manifest.json',
             '03_기타/검수자료/human_review.json'}
     shared|={r for r in blobs if r.startswith('04_문서/')}
     shared|={r for r in blobs if r.startswith('03_기타/검증기록/') and r.endswith('.json')}
     training=shared|{r for r in blobs if r.startswith('01_학습용/')}
     training|={'02_평가용/predict.py','02_평가용/score.py',
+               '02_평가용/run_eval.py','02_평가용/requirements-eval.txt',
                '02_평가용/데이터/dev_questions.jsonl','02_평가용/데이터/dev_answer_key.jsonl',
                '03_기타/도구/check_tokenizer.py','03_기타/설치파일/requirements-tokenizer.txt',
                '03_기타/검수자료/training_review.html'}

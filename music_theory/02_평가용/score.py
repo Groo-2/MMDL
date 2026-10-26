@@ -7,6 +7,10 @@ import math
 from pathlib import Path
 import random
 import re
+import sys
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'03_기타'/'도구'))
+from baseline_contract import PROTOCOL, baseline_module
 
 
 def read_unique(path):
@@ -19,8 +23,7 @@ def read_unique(path):
 
 
 def extract(text):
-    found=re.findall(r'^\s*Answer\s*:\s*([ABCD])(?=\s|[.,;)]|$)',text,re.I|re.M)
-    return found[0].upper() if len(found)==1 else None
+    return baseline_module('parsing').parse_multiple_choice(text,4)
 
 
 def cluster_ci(rows,field='correct',reps=2000):
@@ -34,16 +37,26 @@ def cluster_ci(rows,field='correct',reps=2000):
     return [values[int(0.025*reps)],values[min(reps-1,int(0.975*reps))]]
 
 
-def evaluate(predictions,key):
+def evaluate(predictions,key,judged=None):
+    judged=judged or {}
     if set(predictions)!=set(key):
         raise ValueError(f'ID mismatch: missing={len(set(key)-set(predictions))}, extra={len(set(predictions)-set(key))}')
     rows=[]
     for id_,truth in key.items():
-        pred=predictions[id_];parsed=extract(pred['response'])
+        pred=predictions[id_]
+        parsed=baseline_module('parsing').rule_parse(pred)
+        method='answer_line'
+        if parsed is None:
+            if id_ not in judged:raise ValueError(f'Missing baseline judge result: {id_}')
+            if judged[id_].get('error'):raise ValueError(f'Judge request failed: {id_}')
+            parsed=judged[id_]['judge_pred']
+            method='judge' if parsed is not None else 'judge_failed'
+        gold=dict(pred,answer=truth['answer_letter'])
         rows.append({'id':id_,'category':truth['category'],'task':truth['task'],
                      'family_id':truth['family_id'],'parsed':parsed,
-                     'correct':int(parsed==truth['answer_letter']),
-                     'invalid':int(parsed is None),'length_limited':int(pred.get('length_limited',False))})
+                     'correct':int(baseline_module('parsing').is_correct(gold,parsed)),
+                     'parser_method':method,'invalid':int(parsed is None),
+                     'length_limited':int(pred['finish_reason']=='length')})
     by=defaultdict(list)
     for r in rows:by[r['category']].append(r)
     summary={'n':len(rows),'accuracy':sum(r['correct'] for r in rows)/len(rows),
@@ -58,18 +71,21 @@ def evaluate(predictions,key):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--predictions',type=Path,required=True)
     p.add_argument('--key',type=Path,required=True);p.add_argument('--baseline',type=Path)
+    p.add_argument('--judge-results',type=Path)
+    p.add_argument('--baseline-judge-results',type=Path)
     p.add_argument('--output',type=Path,required=True);args=p.parse_args()
     key=read_unique(args.key)
-    result,rows=evaluate(read_unique(args.predictions),key)
+    metadata=validated_metadata(args.predictions)
+    result,rows=evaluate(read_unique(args.predictions),key,validated_judges(args.judge_results,args.predictions))
     if args.baseline:
         for pred_path in [args.predictions,args.baseline]:
             if not pred_path.with_suffix('.manifest.json').exists():
                 raise ValueError('Paired real runs require predict.py manifests for both model outputs.')
-        newmeta=json.loads(args.predictions.with_suffix('.manifest.json').read_text())
-        basemeta=json.loads(args.baseline.with_suffix('.manifest.json').read_text())
-        for field in ['question_sha256','decoding','model','revision','versions','gpu']:
+        newmeta=metadata
+        basemeta=validated_metadata(args.baseline)
+        for field in ['question_sha256','comparison_conditions']:
             if newmeta.get(field)!=basemeta.get(field):raise ValueError(f'Unequal before/after conditions: {field}')
-        base,base_rows=evaluate(read_unique(args.baseline),key)
+        base,base_rows=evaluate(read_unique(args.baseline),key,validated_judges(args.baseline_judge_results,args.baseline))
         baseline={r['id']:r for r in base_rows}
         gained=sum(not baseline[r['id']]['correct'] and r['correct'] for r in rows)
         lost=sum(baseline[r['id']]['correct'] and not r['correct'] for r in rows)
@@ -81,10 +97,29 @@ def main():
                           'mcnemar_exact_pvalue':pvalue,
                           'family_cluster_bootstrap_delta_95pct_ci':cluster_ci(delta_rows,'delta'),
                           'note':'McNemar assumes independent pairs; related items exist. Prefer the family bootstrap for uncertainty.'}
-    result['grading']='One explicit Answer: A/B/C/D line; missing, ambiguous, or repeated answer lines count as incorrect.'
+    result['protocol']=PROTOCOL
+    result['grading']='Unchanged team baseline rule_parse -> judge extraction -> is_correct; no random fallback.'
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(result,indent=2),encoding='utf-8')
     print(json.dumps(result,indent=2))
+
+
+def validated_metadata(path):
+    from predict import sha256
+    meta=json.loads(path.with_suffix('.manifest.json').read_text())
+    if meta.get('protocol')!=PROTOCOL or meta.get('status')!='complete' or meta.get('output_sha256')!=sha256(path):
+        raise ValueError('Legacy, incomplete, or changed prediction output.')
+    return meta
+
+
+def validated_judges(path,predictions):
+    if path is None:return {}
+    from predict import sha256
+    meta=json.loads(path.with_suffix('.manifest.json').read_text())
+    if (meta.get('protocol')!=PROTOCOL or meta.get('status')!='complete'
+        or meta.get('prediction_sha256')!=sha256(predictions) or meta.get('output_sha256')!=sha256(path)):
+        raise ValueError('Judge results do not match these predictions.')
+    return read_unique(path)
 
 
 if __name__=='__main__':main()

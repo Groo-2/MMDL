@@ -1,0 +1,39 @@
+{
+  "protocol": "mmmu_pro_cot_answer_last_v1",
+  "base_model": "Qwen/Qwen3-VL-4B-Instruct",
+  "base_revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+  "file_sha256": {
+    "mmmu_eval/prompting.py": "d7aafd189a97458c06c98dc45bd14ac92ac3cb7bd15c2c0ae5d7e15b057927dd",
+    "mmmu_eval/parsing.py": "c215d0131b3f7c286d3cfac4f1736a149b932b57e84f3049b39e14d98f33e234",
+    "mmmu_eval/judge_utils.py": "7f1efaa480eb3e7ebec73d18d59c9bdb3dde453a2c97277132b09df7b1e6d5ec",
+    "mmmu_eval/run_mmmu_eval.py": "43afcbc45f6fe7021a5f676ee9845396db191b2b3c1d4d5ed24c44bec038c2a6",
+    "scripts/run_mmmu_eval.sh": "b13e5b6da4c74d0b469711fc72e529be77a99fcd12765e0629761e308ecc2e62",
+    "requirements.txt": "9de228efe87d81085889b1756d3eb6c2911515de2eac50458b65eda8e6352c41"
+  },
+  "generation": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "repetition_penalty": 1.0,
+    "presence_penalty": 1.5,
+    "seed": 42,
+    "max_new_tokens": 32768
+  },
+  "server": {
+    "vllm": "0.27.1",
+    "dtype": "bfloat16",
+    "max_model_len": 40960,
+    "gpu_memory_utilization": 0.9,
+    "concurrency": 32,
+    "VLLM_USE_V2_MODEL_RUNNER": "0"
+  },
+  "judge": {
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+    "temperature": 0.0,
+    "seed": 42,
+    "max_tokens": 2048,
+    "max_model_len": 20480,
+    "concurrency": 16
+  }
+}

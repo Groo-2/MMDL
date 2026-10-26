@@ -1,6 +1,6 @@
 {
-  "version": "music_theory_text_v2.1",
-  "created": "2026-10-26",
+  "version": "music_theory_text_v2.2",
+  "created": "2026-10-27",
   "seed": 20261026,
   "stats": {
     "train": {
@@ -113,6 +113,46 @@
       }
     }
   },
+  "protocol": "mmmu_pro_cot_answer_last_v1",
+  "baseline_contract": {
+    "protocol": "mmmu_pro_cot_answer_last_v1",
+    "base_model": "Qwen/Qwen3-VL-4B-Instruct",
+    "base_revision": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+    "file_sha256": {
+      "mmmu_eval/prompting.py": "d7aafd189a97458c06c98dc45bd14ac92ac3cb7bd15c2c0ae5d7e15b057927dd",
+      "mmmu_eval/parsing.py": "c215d0131b3f7c286d3cfac4f1736a149b932b57e84f3049b39e14d98f33e234",
+      "mmmu_eval/judge_utils.py": "7f1efaa480eb3e7ebec73d18d59c9bdb3dde453a2c97277132b09df7b1e6d5ec",
+      "mmmu_eval/run_mmmu_eval.py": "43afcbc45f6fe7021a5f676ee9845396db191b2b3c1d4d5ed24c44bec038c2a6",
+      "scripts/run_mmmu_eval.sh": "b13e5b6da4c74d0b469711fc72e529be77a99fcd12765e0629761e308ecc2e62",
+      "requirements.txt": "9de228efe87d81085889b1756d3eb6c2911515de2eac50458b65eda8e6352c41"
+    },
+    "generation": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "repetition_penalty": 1.0,
+      "presence_penalty": 1.5,
+      "seed": 42,
+      "max_new_tokens": 32768
+    },
+    "server": {
+      "vllm": "0.27.1",
+      "dtype": "bfloat16",
+      "max_model_len": 40960,
+      "gpu_memory_utilization": 0.9,
+      "concurrency": 32,
+      "VLLM_USE_V2_MODEL_RUNNER": "0"
+    },
+    "judge": {
+      "model": "meta-llama/Llama-3.1-8B-Instruct",
+      "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+      "temperature": 0.0,
+      "seed": 42,
+      "max_tokens": 2048,
+      "max_model_len": 20480,
+      "concurrency": 16
+    }
+  },
   "source_inputs": [
     "original theory rules",
     "original conceptual cards"
@@ -128,16 +168,16 @@
     "no measured training gain yet; 300 test MCQs, chance accuracy 25%"
   ],
   "file_sha256": {
-    "01_학습용/데이터/dev_loss.jsonl": "4fc5470d6b7f4e225ebb99f5e24b4246339a92f64756c12519bf1ff819ae4740",
-    "01_학습용/데이터/train.jsonl": "e7b60c6a998cd305ed54985402e22d2b527a52acae0436ea44f7af55038c2f83",
+    "01_학습용/데이터/dev_loss.jsonl": "bdfc7c8ee35ecc3fc495e8e8b6001fc37fffa7a55bb2c9f3e61b8985d1c7b8c2",
+    "01_학습용/데이터/train.jsonl": "79aee0d99a59f637932d869f3e477254098dd47d4e3d5198ce79d3c3e1a190e8",
     "02_평가용/데이터/dev_answer_key.jsonl": "2dee839e15d97a16c7e076663e3ca0d5d735a31cbc8cc9e8a27ba9ea4ff04e0d",
-    "02_평가용/데이터/dev_questions.jsonl": "3101e5e330fe3cc3841f31224e3a75704a5465c8b4562e5dd77b9d5a92afb28a",
+    "02_평가용/데이터/dev_questions.jsonl": "8fe025a0ef1d9f74a99d266a85d32a6bb845f327747e29e8163eeec1af3c000b",
     "02_평가용/데이터/test_answer_key.jsonl": "beb4fdfde8410ed428d2a77a6201be67b3f5e6cfff0bdfc8a3076d53512d2ab8",
-    "02_평가용/데이터/test_questions.jsonl": "ca4a1e1597219597bb03ff5ece04032937c9f4c5e247e4c1ed54937eba81c212",
-    "03_기타/검증기록/train_records.jsonl": "990089fe67e1cf13e751157d31dd4987c44c6d2e3f457b43c0ea79143b990cf5",
-    "03_기타/검증기록/dev_records.jsonl": "b5d9830c17299053f00b7e9b24516e7ff42e751da6c06055454e7841612214e2",
-    "02_평가용/검수자료/test_records.jsonl": "47c957ddf7a4c7ed8a0985c3948cbb969a51b0cafc1aca4684111b973b8e4250",
-    "03_기타/검증기록/training_review_sample.jsonl": "828064cc7fd21e2e13f6ff03760bc2f7afb71f0ff6bcdca64e6a8212c38ad658"
+    "02_평가용/데이터/test_questions.jsonl": "95631d84f155db18e984d7e33e3e253b3be5e6818897268ca541f1b2f6eb9e03",
+    "03_기타/검증기록/train_records.jsonl": "8dd4f9cc9c5877a638875b153054224259381ea5553e9f7dcf94d54456c58d7b",
+    "03_기타/검증기록/dev_records.jsonl": "667d6b8e5d0b3354811d676fba83aa56feb4739f476ec069db8666f79d457f02",
+    "02_평가용/검수자료/test_records.jsonl": "3a4b8fc6cf17fe0a4f75366eb8d1836c1ddd9648a2fb55633a240dbd5e776013",
+    "03_기타/검증기록/training_review_sample.jsonl": "2341ea32cea28de1dd79f8b417e96b35a41deb6de8dedc9e2d5e9ba19a047082"
   },
   "public_reference_counts": {
     "MMMU/MMMU": 369,

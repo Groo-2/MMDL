@@ -2,7 +2,7 @@
   "status": "pending",
   "reviewer": null,
   "review_date": null,
-  "release": "v2.1",
+  "release": "v2.2",
   "train_concept_review": "pending",
   "train_stratified_sample_review": "pending",
   "dev_review": "pending",

@@ -40,19 +40,19 @@ class Tests(unittest.TestCase):
         self.assertNotEqual(pair_group('C4','F#4'),pair_group('C4','Gb4'))
 
     def test_no_prompt_loss(self):
-        messages=[{'role':'system','content':'system'},{'role':'user','content':'question'},
-                  {'role':'assistant','content':'Answer: A'}]
+        messages=[{'role':'user','content':'question'},
+                  {'role':'assistant','content':'Explanation\nAnswer: A'}]
         t=FakeTokenizer();encoded=tokenize_response_only(t,messages,999)
         prompt=t.apply_chat_template(messages[:-1],True,True)
         self.assertTrue(all(x==-100 for x in encoded['labels'][:len(prompt)]))
-        self.assertEqual(bytes(encoded['labels'][len(prompt):]).decode(),'Answer: A</turn>')
+        self.assertEqual(bytes(encoded['labels'][len(prompt):]).decode(),'Explanation\nAnswer: A</turn>')
         with self.assertRaises(ValueError):tokenize_response_only(t,messages,10)
 
     def test_strict_grading(self):
         self.assertEqual(extract('Answer: B\nExplanation: ...'),'B')
-        self.assertEqual(extract('Answer: b.'),'B')
+        self.assertIsNone(extract('Answer: b.'))
         self.assertIsNone(extract('A or B could work'))
-        self.assertIsNone(extract('Answer: A\nAnswer: B'))
+        self.assertEqual(extract('Answer: A\nAnswer: B'),'B')
         self.assertIsNone(extract('Answer: Because of the chord'))
 
     def test_missing_ids_rejected(self):

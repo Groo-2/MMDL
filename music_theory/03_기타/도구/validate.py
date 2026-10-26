@@ -9,6 +9,7 @@ import re
 from fractions import Fraction
 from music21 import chord, duration, interval, key, pitch, roman, scale
 from _layout import PROJECT_ROOT,Layout
+from baseline_contract import PROTOCOL, sft_messages, prompt_messages
 
 ROOT=PROJECT_ROOT
 
@@ -146,14 +147,15 @@ def main():
         try:
             assert row['id'] not in ids;ids.add(row['id'])
             assert row['semantic_hash'] not in semantic;semantic.add(row['semantic_hash'])
-            question=clean(row['messages'][1]['content'])
+            question=clean(row['messages'][0]['content'])
             assert question not in prompts;prompts.add(question)
             families[row['family_id']].add(row['split'])
-            assert len(row['messages'])==3
+            assert len(row['messages'])==2
             assert all(isinstance(m['content'],str) for m in row['messages'])
-            assert [m['role'] for m in row['messages']]==['system','user','assistant']
+            assert [m['role'] for m in row['messages']]==['user','assistant']
             assert not any(k in row for k in ['image','images','abc_score'])
-            assert row['messages'][2]['content'].startswith('Answer: ')
+            assert row['messages']==sft_messages(row)
+            assert row['messages'][-1]['content'].strip().splitlines()[-1].startswith('Answer: ')
             if row['format']=='mcq':
                 assert set(row['options'])==set('ABCD')
                 assert len(set(map(clean,row['options'].values())))==4
@@ -193,10 +195,11 @@ def main():
         for r in rows:
             assert not any(k in r for k in ['answer_text','answer_letter','explanation','spec','family_id'])
             assert all(m['role']!='assistant' for m in r['messages'])
+            assert r['messages']==prompt_messages(r)
     for file in layout.training.glob('*.jsonl'):
         for line in file.read_text().splitlines():
             assert set(json.loads(line))=={'messages'},f'audit metadata in training export: {file}'
-    report={'status':'PASS' if not errors else 'FAIL','records':len(records),'verified_records':schemas,
+    report={'status':'PASS' if not errors else 'FAIL','protocol':PROTOCOL,'records':len(records),'verified_records':schemas,
             'independent_oracle':'music21 and independent fractions calculations', 'checked_by_task':dict(checked),
             'golden_cases':golden_checks(),'cross_split_family_overlap':0,
             'conceptual_card_check':'metadata and formula checks; expert review of authored definitions still pending',

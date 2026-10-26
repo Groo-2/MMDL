@@ -1,0 +1,24 @@
+{
+  "from": "v2.1",
+  "to": "v2.2",
+  "date": "2026-10-27",
+  "splits": {
+    "train": {
+      "records": 3000,
+      "question_answer_options_spec_family_ids_unchanged": true
+    },
+    "dev": {
+      "records": 300,
+      "question_answer_options_spec_family_ids_unchanged": true
+    },
+    "test": {
+      "records": 300,
+      "question_answer_options_spec_family_ids_unchanged": true
+    }
+  },
+  "modified_fields": [
+    "messages"
+  ],
+  "baseline_protocol": "mmmu_pro_cot_answer_last_v1",
+  "old_commit": "29767772ebf34fa4808ee9ba2756a39fba2d46c6"
+}

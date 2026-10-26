@@ -14,6 +14,7 @@ from theory import (CHORDS, INTERVAL_CODES, INV, ROOTS, SCALES, digest, frac,
                     normalize, pair_group, pitch_name, rational, spelled_chord,
                     spelled_scale, transpose)
 from _layout import PROJECT_ROOT
+from baseline_contract import sft_messages, PROTOCOL, assert_baseline
 
 ROOT = PROJECT_ROOT
 SEED = 20261026
@@ -21,10 +22,6 @@ QUOTAS = {'interval':360, 'transposition':360, 'chord_quality':180,
           'chord_spelling':120, 'chord_inversion':180, 'scale_degree':270,
           'scale_spelling':120, 'duration_sum':390, 'measure_completion':180,
           'tempo':180, 'roman_numeral':270, 'cadence':180, 'concept':210}
-SYSTEM = ('You are a music theory tutor. Use standard Western tonal theory and twelve-tone equal temperament. '
-          'Use scientific pitch notation (middle C = C4). Respect pitch spelling, octave, '
-          'direction, the specified scale form, and the stated beat unit. '
-          'Give the final answer first as "Answer: ...", followed by a brief factual explanation.')
 ROMANS = ['I','ii','iii','IV','V','vi','vii°']
 DURATION_NAMES = {'whole':Fraction(4), 'half':Fraction(2), 'quarter':Fraction(1),
                   'eighth':Fraction(1,2), 'sixteenth':Fraction(1,4),
@@ -317,19 +314,12 @@ def main():
             row={k:v for k,v in item.items() if k!='distractors'}
             row.update(id=f'mt2_{split}_{index+1:05}',split=split,format=format_,modality='text_only',language='en',
                        provenance='new rule-based synthesis; no public benchmark input to generation')
-            prompt=item['question']
             if format_=='mcq':
                 correct=mc_index%4; mc_index+=1
                 opts=rng.sample(item['distractors'],3)
                 opts.insert(correct,item['answer_text'])
                 row.update(options=dict(zip('ABCD',opts)),answer_letter='ABCD'[correct])
-                prompt+='\n'+'\n'.join(f'{k}. {v}' for k,v in row['options'].items())
-                prompt+='\nGive the final answer as Answer: <letter>. Then give a brief explanation.'
-                target=f'Answer: {row["answer_letter"]}\nExplanation: {row["explanation"]}'
-            else:
-                prompt+='\nGive the final answer as Answer: <answer>. Then give a brief explanation.'
-                target=f'Answer: {row["answer_text"]}\nExplanation: {row["explanation"]}'
-            row['messages']=[{'role':'system','content':SYSTEM},{'role':'user','content':prompt}, {'role':'assistant','content':target}]
+            row['messages']=sft_messages(row)
             rows.append(row)
         if split=='train':
             write_jsonl(out/'training'/'train.jsonl',[{'messages':r['messages']} for r in rows])
@@ -337,7 +327,7 @@ def main():
             public=[]; answers=[]
             for r in rows:
                 public.append({k:r[k] for k in ['id','task','category','format','question','options']} |
-                              {'messages':r['messages'][:2]})
+                              {'messages':r['messages'][:-1]})
                 answers.append({k:r[k] for k in ['id','task','category','answer_text','answer_letter','family_id']})
             write_jsonl(out/'evaluation'/f'{split}_questions.jsonl',public)
             write_jsonl(out/'evaluation'/f'{split}_answer_key.jsonl',answers)
@@ -350,7 +340,8 @@ def main():
                       'families':len(set(r['family_id'] for r in rows)),
                       'formats':dict(Counter(r['format'] for r in rows)),
                       'answer_letters':dict(Counter(r.get('answer_letter') for r in rows if r['format']=='mcq'))}
-    manifest={'version':'music_theory_text_v2.1','created':'2026-10-26','seed':SEED,'stats':stats,
+    manifest={'version':'music_theory_text_v2.2','created':'2026-10-27','seed':SEED,'stats':stats,
+              'protocol':PROTOCOL,'baseline_contract':assert_baseline(),
               'source_inputs':['original theory rules','original conceptual cards'],
               'rule_version':'theory.py v2.0', 'human_expert_review':'pending',
               'generalization':'Held-out spelled pitch scenarios; shared theory rules, templates, and transposed structural patterns are intentional. This is interpolation, not an OOD or unseen-rule benchmark.',

@@ -1,5 +1,6 @@
 {
   "status": "PASS",
+  "protocol": "mmmu_pro_cot_answer_last_v1",
   "records": 3600,
   "verified_records": 3600,
   "independent_oracle": "music21 and independent fractions calculations",
