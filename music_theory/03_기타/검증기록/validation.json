@@ -1,0 +1,139 @@
+{
+  "status": "PASS",
+  "records": 3600,
+  "verified_records": 3600,
+  "independent_oracle": "music21 and independent fractions calculations",
+  "checked_by_task": {
+    "duration_sum": 468,
+    "tempo": 216,
+    "measure_completion": 216,
+    "chord_spelling": 144,
+    "concept": 252,
+    "scale_degree": 324,
+    "transposition": 432,
+    "roman_numeral": 324,
+    "interval": 432,
+    "cadence": 216,
+    "chord_quality": 216,
+    "chord_inversion": 216,
+    "scale_spelling": 144
+  },
+  "golden_cases": 12,
+  "cross_split_family_overlap": 0,
+  "conceptual_card_check": "metadata and formula checks; expert review of authored definitions still pending",
+  "subskill_coverage": {
+    "train": {
+      "scale_spelling/mode": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "scale_degree/mode": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_quality/quality": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_spelling/quality": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_inversion/inversion": {
+        "required": 4,
+        "observed": 4,
+        "missing": []
+      },
+      "interval/code": {
+        "required": 28,
+        "observed": 28,
+        "missing": []
+      },
+      "transposition/direction": {
+        "required": 2,
+        "observed": 2,
+        "missing": []
+      }
+    },
+    "dev": {
+      "scale_spelling/mode": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "scale_degree/mode": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_quality/quality": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_spelling/quality": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_inversion/inversion": {
+        "required": 4,
+        "observed": 4,
+        "missing": []
+      },
+      "interval/code": {
+        "required": 28,
+        "observed": 28,
+        "missing": []
+      },
+      "transposition/direction": {
+        "required": 2,
+        "observed": 2,
+        "missing": []
+      }
+    },
+    "test": {
+      "scale_spelling/mode": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "scale_degree/mode": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_quality/quality": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_spelling/quality": {
+        "required": 9,
+        "observed": 9,
+        "missing": []
+      },
+      "chord_inversion/inversion": {
+        "required": 4,
+        "observed": 4,
+        "missing": []
+      },
+      "interval/code": {
+        "required": 28,
+        "observed": 28,
+        "missing": []
+      },
+      "transposition/direction": {
+        "required": 2,
+        "observed": 2,
+        "missing": []
+      }
+    }
+  },
+  "human_expert_review": "NOT performed by this pipeline",
+  "errors": []
+}

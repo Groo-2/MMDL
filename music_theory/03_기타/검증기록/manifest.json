@@ -1,0 +1,150 @@
+{
+  "version": "music_theory_text_v2.1",
+  "created": "2026-10-26",
+  "seed": 20261026,
+  "stats": {
+    "train": {
+      "count": 3000,
+      "tasks": {
+        "duration_sum": 390,
+        "tempo": 180,
+        "measure_completion": 180,
+        "chord_spelling": 120,
+        "concept": 210,
+        "scale_degree": 270,
+        "transposition": 360,
+        "roman_numeral": 270,
+        "interval": 360,
+        "cadence": 180,
+        "chord_quality": 180,
+        "chord_inversion": 180,
+        "scale_spelling": 120
+      },
+      "categories": {
+        "rhythm": 750,
+        "chords": 480,
+        "conceptual_knowledge": 210,
+        "scales": 390,
+        "intervals": 720,
+        "harmony": 450
+      },
+      "families": 1252,
+      "formats": {
+        "mcq": 1500,
+        "short_answer": 1500
+      },
+      "answer_letters": {
+        "A": 375,
+        "B": 375,
+        "C": 375,
+        "D": 375
+      }
+    },
+    "dev": {
+      "count": 300,
+      "tasks": {
+        "roman_numeral": 27,
+        "measure_completion": 18,
+        "transposition": 36,
+        "scale_degree": 27,
+        "duration_sum": 39,
+        "tempo": 18,
+        "cadence": 18,
+        "concept": 21,
+        "interval": 36,
+        "chord_inversion": 18,
+        "scale_spelling": 12,
+        "chord_spelling": 12,
+        "chord_quality": 18
+      },
+      "categories": {
+        "harmony": 45,
+        "rhythm": 75,
+        "intervals": 72,
+        "scales": 39,
+        "conceptual_knowledge": 21,
+        "chords": 48
+      },
+      "families": 175,
+      "formats": {
+        "mcq": 300
+      },
+      "answer_letters": {
+        "A": 75,
+        "B": 75,
+        "C": 75,
+        "D": 75
+      }
+    },
+    "test": {
+      "count": 300,
+      "tasks": {
+        "duration_sum": 39,
+        "scale_degree": 27,
+        "chord_spelling": 12,
+        "interval": 36,
+        "roman_numeral": 27,
+        "scale_spelling": 12,
+        "concept": 21,
+        "measure_completion": 18,
+        "chord_quality": 18,
+        "cadence": 18,
+        "transposition": 36,
+        "tempo": 18,
+        "chord_inversion": 18
+      },
+      "categories": {
+        "rhythm": 75,
+        "scales": 39,
+        "chords": 48,
+        "intervals": 72,
+        "harmony": 45,
+        "conceptual_knowledge": 21
+      },
+      "families": 181,
+      "formats": {
+        "mcq": 300
+      },
+      "answer_letters": {
+        "A": 75,
+        "B": 75,
+        "C": 75,
+        "D": 75
+      }
+    }
+  },
+  "source_inputs": [
+    "original theory rules",
+    "original conceptual cards"
+  ],
+  "rule_version": "theory.py v2.0",
+  "human_expert_review": "pending",
+  "generalization": "Held-out spelled pitch scenarios; shared theory rules, templates, and transposed structural patterns are intentional. This is interpolation, not an OOD or unseen-rule benchmark.",
+  "exclusion_scope": "public evaluation text lexical screening in a separate step; no guarantee about private model data",
+  "known_limits": [
+    "Western tonal theory, twelve-tone equal temperament",
+    "synthetic text; no images, audio, ABC notation, music history, or world-music coverage",
+    "music21 cross-checks do not replace music-expert review",
+    "no measured training gain yet; 300 test MCQs, chance accuracy 25%"
+  ],
+  "file_sha256": {
+    "01_학습용/데이터/dev_loss.jsonl": "4fc5470d6b7f4e225ebb99f5e24b4246339a92f64756c12519bf1ff819ae4740",
+    "01_학습용/데이터/train.jsonl": "e7b60c6a998cd305ed54985402e22d2b527a52acae0436ea44f7af55038c2f83",
+    "02_평가용/데이터/dev_answer_key.jsonl": "2dee839e15d97a16c7e076663e3ca0d5d735a31cbc8cc9e8a27ba9ea4ff04e0d",
+    "02_평가용/데이터/dev_questions.jsonl": "3101e5e330fe3cc3841f31224e3a75704a5465c8b4562e5dd77b9d5a92afb28a",
+    "02_평가용/데이터/test_answer_key.jsonl": "beb4fdfde8410ed428d2a77a6201be67b3f5e6cfff0bdfc8a3076d53512d2ab8",
+    "02_평가용/데이터/test_questions.jsonl": "ca4a1e1597219597bb03ff5ece04032937c9f4c5e247e4c1ed54937eba81c212",
+    "03_기타/검증기록/train_records.jsonl": "990089fe67e1cf13e751157d31dd4987c44c6d2e3f457b43c0ea79143b990cf5",
+    "03_기타/검증기록/dev_records.jsonl": "b5d9830c17299053f00b7e9b24516e7ff42e751da6c06055454e7841612214e2",
+    "02_평가용/검수자료/test_records.jsonl": "47c957ddf7a4c7ed8a0985c3948cbb969a51b0cafc1aca4684111b973b8e4250",
+    "03_기타/검증기록/training_review_sample.jsonl": "828064cc7fd21e2e13f6ff03760bc2f7afb71f0ff6bcdca64e6a8212c38ad658"
+  },
+  "public_reference_counts": {
+    "MMMU/MMMU": 369,
+    "MMMU/MMMU_Pro": 5190,
+    "Sylence/SSMR-Bench": 3200,
+    "m-a-p/MusicTheoryBench": 372,
+    "team/pilot20": 20
+  },
+  "folder_layout": "roles_v1"
+}

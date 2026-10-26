@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "model": "Qwen/Qwen3-VL-4B-Instruct",
+  "requested_revision": null,
+  "resolved_commit": "ebb281ec70b05090aa6165b016eac8ec08e71b17",
+  "tokenizer_file_sha256": {
+    "tokenizer_config.json": "c2da771801886ad9ae98181793ffd3dfb7f1af30f6f7c6a4e15d7dbba52e2399",
+    "tokenizer.json": "a5d85b6dcc535e6b93115a9ef287e6132fdbf30270da6218194ba742261173c7",
+    "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+    "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  },
+  "transformers_version": "4.57.1",
+  "records": 3300,
+  "max_total_tokens": 276,
+  "max_assistant_tokens": 76,
+  "min_assistant_tokens": 15,
+  "configured_max_length": 1536,
+  "prompt_prefix_alignment": "all records exact",
+  "prompt_loss_mask": "all prompt tokens = -100",
+  "model_weights_loaded": false,
+  "gpu_training_tested": false
+}
