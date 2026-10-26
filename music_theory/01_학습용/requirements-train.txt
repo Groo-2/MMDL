@@ -1,7 +1,0 @@
-# Install a PyTorch build compatible with the university driver separately.
-# These are API-compatible recipe constraints, not a GPU-tested lockfile.
-transformers==4.57.1
-peft==0.17.1
-accelerate>=1.5,<2
-safetensors>=0.5
-jinja2>=3.1,<4
