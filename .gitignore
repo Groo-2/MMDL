@@ -1,0 +1,10 @@
+# 비밀값과 큰 산출물은 커밋하지 않는다
+.env
+.venv_lab/
+data/
+results/
+logs/
+upload.tar.gz
+__pycache__/
+*.pyc
+.DS_Store

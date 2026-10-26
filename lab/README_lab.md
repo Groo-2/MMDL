@@ -4,6 +4,8 @@
 - **E1:** SSMR-Bench Train_visual로 GRPO(rollout 8, KL 없음, 정답 보상, LoRA) → merge → 평가
 - E2(music_theory SFT)와 E3는 팀원이 버전을 맞춘 자료를 다시 받은 뒤 진행합니다 (이 폴더에는 아직 없음).
 
+**처음이면 `lab/RUNBOOK_실습실_명령어.md`부터 보세요** (실습실에서 칠 명령어를 순서대로, 단계마다 확인할 것과 알려 줄 것을 적어 두었습니다).
+
 평가 코드(`mmmu_eval/`)는 수정하지 않았고, 프롬프트·sampling·파서·Llama judge·`max_new_tokens`(32,768)·해상도는 baseline(Run B)과 같습니다. 바뀌는 것은 모델 경로와 요청의 seed뿐입니다.
 
 ## 0. 준비
