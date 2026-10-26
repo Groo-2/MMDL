@@ -12,8 +12,14 @@
 
   python lab/eval_repeat.py --tag baseline --model Qwen/Qwen3-VL-4B-Instruct \\
       --revision ebb281ec70b05090aa6165b016eac8ec08e71b17 --runs 8
-  python lab/eval_repeat.py --tag grpo_run1 --model results/grpo_run1/merged --runs 8
+  python lab/eval_repeat.py --tag grpo_run1 --model results/grpo_run1/merged --preset music4
   python lab/eval_repeat.py --tag smoke --model ... --runs 1 --subject Music    # 시간 측정용
+
+프리셋 (결과는 results/<tag>/<music|full>/run_NN)
+  music4        Music 30문항 x seed 42~45
+  full2         전체 900문항 x seed 42, 43
+  music_extend  Music에 seed 46~49를 추가해 8번으로 확장. 사용자 확인 없이는 실행되지 않는다:
+                환경변수 CONFIRM_EXTEND_TO_8=yes 를 사용자가 직접 설정해야 한다 (music4를 먼저 끝내야 함)
 """
 
 import argparse
@@ -39,6 +45,7 @@ import run_mmmu_eval as R  # noqa: E402  (평가 코드 그대로 사용)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import summarize_runs  # noqa: E402
+from envinfo import load_env_file, snapshot  # noqa: E402
 
 JUDGE = R.JUDGE_REPO
 JUDGE_REV = R.JUDGE_REVISION
@@ -47,17 +54,6 @@ QWEN_PORT, JUDGE_PORT = 8000, 8001
 MAX_MODEL_LEN = 40960
 JUDGE_MAX_MODEL_LEN = 20480
 GPU_MEM_UTIL = 0.90
-
-
-def load_env_file(path):
-    """.env의 KEY=VALUE를 읽어 환경변수에 넣는다 (이미 있으면 유지). HF_TOKEN용."""
-    if not path.exists():
-        return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 # ============================================================
@@ -119,13 +115,39 @@ def scope(args):
     return dict(subject=None, all=True, limit=args.limit)
 
 
+# (과목, run 수, 시작 run 번호, 결과 하위 폴더)
+PRESETS = {
+    "music4": dict(subject="Music", runs=4, run_start=0, group="music"),
+    "full2": dict(subject=None, runs=2, run_start=0, group="full"),
+    "music_extend": dict(subject="Music", runs=4, run_start=4, group="music"),
+}
+EXTEND_MESSAGE = (
+    "music_extend(Music을 8번으로 확장)는 사용자 확인 없이 실행하지 않는다.\n"
+    "  music4 결과를 확인한 뒤 확장하기로 했다면 직접 설정하고 다시 실행하세요:\n"
+    "    CONFIRM_EXTEND_TO_8=yes bash lab/run_pipeline.sh music_extend"
+)
+
+
+def resolve_runs(args):
+    """프리셋/인자를 해석해 (출력 폴더, [(run 번호, seed, 폴더)])를 돌려준다. GPU나 서버 없이 호출할 수 있다."""
+    out_root = Path(args.out_root) / args.tag
+    if args.preset:
+        p = PRESETS[args.preset]
+        args.subject, args.runs, args.run_start = p["subject"], p["runs"], p["run_start"]
+        out_root = out_root / p["group"]
+    runs = [(k, args.seed0 + k, out_root / f"run_{k:02d}") for k in range(args.run_start, args.run_start + args.runs)]
+    return out_root, runs
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--tag", required=True, help="결과 폴더 이름 (results/<tag>/run_00 ...)")
+    parser.add_argument("--tag", required=True, help="결과 폴더 이름 (results/<tag>/...)")
     parser.add_argument("--model", required=True, help="HF repo 또는 merge한 체크포인트 폴더")
     parser.add_argument("--revision", default=None, help="HF repo일 때만. 체크포인트 폴더는 생략")
-    parser.add_argument("--runs", type=int, default=8)
-    parser.add_argument("--seed0", type=int, default=R.SEED, help="run 0의 seed (동결 recipe = 42)")
+    parser.add_argument("--preset", choices=sorted(PRESETS), default=None)
+    parser.add_argument("--runs", type=int, default=4)
+    parser.add_argument("--run-start", type=int, default=0, help="run 번호의 시작 (같은 폴더에 이어 붙일 때)")
+    parser.add_argument("--seed0", type=int, default=R.SEED, help="run 0의 seed (동결 recipe = 42). run k의 seed = seed0 + k")
     parser.add_argument("--subject", choices=R.SUBJECTS, default=None, help="한 과목만 (생략하면 30과목 900문항)")
     parser.add_argument("--limit", type=int, default=None, help="과목당 앞 N문항 (스모크 테스트용. 보고용 수치로 쓸 수 없음)")
     parser.add_argument("--concurrency", type=int, default=32)
@@ -133,22 +155,39 @@ def main():
     parser.add_argument("--data-root", default=str(REPO / "data" / "hf_mmmu"))
     parser.add_argument("--out-root", default=str(REPO / "results"))
     parser.add_argument("--gpu-mem-util", type=float, default=GPU_MEM_UTIL)
+    parser.add_argument("--dry-run", action="store_true", help="서버를 띄우지 않고 실행 계획(폴더, seed)만 출력")
     args = parser.parse_args()
+
+    # 8번 확장 안전장치: 서버를 띄우거나 무엇을 하기 전에 가장 먼저 확인한다.
+    if args.preset == "music_extend" and os.environ.get("CONFIRM_EXTEND_TO_8") != "yes":
+        print(EXTEND_MESSAGE)
+        sys.exit(3)
+
+    out_root, runs = resolve_runs(args)
+
+    if args.preset == "music_extend":
+        missing = [k for k in range(4) if not (out_root / f"run_{k:02d}" / "final_predictions.jsonl").exists()]
+        if missing:
+            raise SystemExit(f"music4가 끝나지 않았다 (없는 run: {missing}). 먼저 music4를 완료하세요: {out_root}")
+
+    print(f"계획: {args.tag} | preset={args.preset} | 과목={args.subject or '전체 30과목'} | "
+          f"run {[k for k, _, _ in runs]} seed {[s for _, s, _ in runs]} | 결과 {out_root}")
+    if args.dry_run:
+        return
 
     load_env_file(REPO / ".env")
     if not args.no_judge and not os.environ.get("HF_TOKEN"):
         raise SystemExit("judge(Llama-3.1-8B-Instruct)는 gated 모델이라 HF_TOKEN이 필요합니다 "
                          "(export HF_TOKEN=... 또는 저장소 루트의 .env). judge 없이 돌리려면 --no-judge")
 
-    out_root = Path(args.out_root) / args.tag
     out_root.mkdir(parents=True, exist_ok=True)
-    runs = [(k, args.seed0 + k, out_root / f"run_{k:02d}") for k in range(args.runs)]
     sc = scope(args)
     revision_args = ["--revision", args.revision] if args.revision else []
 
     gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
                          capture_output=True, text=True).stdout.strip()
-    print(f"GPU: {gpu}\n모델: {args.model} {args.revision or ''}\n결과: {out_root} | runs={args.runs} seeds={[s for _, s, _ in runs]}")
+    snapshot(out_root, extra={"model": args.model, "revision": args.revision, "preset": args.preset})
+    print(f"GPU: {gpu}\n모델: {args.model} {args.revision or ''}")
 
     # ---------- A) Qwen 서버 1회, 모든 run 추론 ----------
     t0 = time.time()
@@ -164,8 +203,8 @@ def main():
             (out / "run_meta.json").write_text(json.dumps({
                 "run": k, "seed": seed, "model": args.model, "revision": args.revision, "gpu": gpu,
                 "max_model_len": MAX_MODEL_LEN, "gpu_memory_utilization": args.gpu_mem_util,
-                "subject": args.subject, "limit": args.limit}, indent=2))
-            print(f"\n========== [{args.tag}] run {k + 1}/{args.runs} seed={seed} ==========", flush=True)
+                "subject": args.subject, "limit": args.limit, "preset": args.preset}, indent=2))
+            print(f"\n========== [{args.tag}] run {k} seed={seed} ==========", flush=True)
             R.cmd_infer(Namespace(
                 output_dir=str(out), data_root=args.data_root, prompt="mmmu_pro_cot", max_new_tokens=32768,
                 concurrency=args.concurrency, request_timeout=3600, api_base=f"http://localhost:{QWEN_PORT}/v1",

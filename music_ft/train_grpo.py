@@ -78,7 +78,10 @@ class Heartbeat:
                           f"스텝 경과 {time.time() - self.step_t0:.0f}s", flush=True)
 
             def on_step_end(self, args, state, control, **kwargs):
-                print(f"[heartbeat] step {state.global_step} 완료, 스텝 시간 {time.time() - self.step_t0:.0f}s", flush=True)
+                import torch
+
+                peak = f", GPU 최대 메모리 {torch.cuda.max_memory_allocated() / 2 ** 30:.1f}GB" if torch.cuda.is_available() else ""
+                print(f"[heartbeat] step {state.global_step} 완료, 스텝 시간 {time.time() - self.step_t0:.0f}s{peak}", flush=True)
 
         return _Callback()
 
@@ -119,6 +122,15 @@ def load_examples(data_dir, jpeg_dir, jsonl_name, limit=None):
             if limit and len(examples) >= limit:
                 break
     return examples
+
+
+def pick_stress_examples(examples, k):
+    """메모리를 가장 많이 쓰는 문항 k개: 이미지 수가 많고 텍스트가 긴 순서 (프롬프트 토큰 수의 대리 지표)."""
+
+    def weight(e):
+        return (len(e["images"]), len(e["prompt"][0]["content"][0]["text"]))
+
+    return sorted(examples, key=weight, reverse=True)[:k]
 
 
 def build_dataset(examples):
@@ -216,9 +228,11 @@ def main():
     parser.add_argument("--lora-r", type=int, default=64)
     parser.add_argument("--lora-alpha", type=int, default=128)
     parser.add_argument("--vllm-mem", type=float, default=0.35, help="--rollout vllm일 때만")
-    parser.add_argument("--save-steps", type=int, default=10)
+    parser.add_argument("--save-steps", type=int, default=25)
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--stress", action="store_true",
+                        help="가장 긴(이미지 5장) 프롬프트 prompts-per-step개로 1스텝만 실행해 메모리 한계를 미리 확인한다")
     args = parser.parse_args()
 
     import torch
@@ -236,7 +250,16 @@ def main():
 
     config = build_grpo_config(args, output_dir)
 
+    sys.path.insert(0, str(HERE.parent / "lab"))
+    from envinfo import snapshot
+
+    snapshot(output_dir, extra={"tool": "train_grpo", "args": {k: str(v) for k, v in vars(args).items()}})
+
     examples = load_examples(data_dir, output_dir / "jpeg", args.train_file, args.limit)
+    if args.stress:
+        examples = pick_stress_examples(examples, args.prompts_per_step)
+        args.max_steps = 1
+        print(f"[stress] 최악 조건 프롬프트 {len(examples)}개 (이미지 수 {[len(e['images']) for e in examples]})로 1스텝만 실행")
     dataset = build_dataset(examples)
     print(f"학습 문항 {len(dataset)}개, 스텝당 {args.prompts_per_step}문항 × {NUM_GENERATIONS} = "
           f"{args.prompts_per_step * NUM_GENERATIONS} completion | rollout={args.rollout}")

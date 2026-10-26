@@ -1,7 +1,9 @@
 """반복 평가(run_00 ~ run_NN)의 요약과 두 모델 비교.
 
-  python lab/summarize_runs.py summary results/baseline
-  python lab/summarize_runs.py compare results/baseline results/grpo_run1
+  python lab/summarize_runs.py summary results/baseline/full
+  python lab/summarize_runs.py summary results/baseline/music --subject Music
+  python lab/summarize_runs.py compare results/baseline/full results/grpo_run1/full
+  python lab/summarize_runs.py compare results/baseline/music results/grpo_run1/music --subject Music
 
 summary: run별 정확도, 평균±표준편차(run 간), Music, 잘림, 과목별 평균을 출력하고 summary_runs.json으로 저장한다.
 compare: 문항별 평균 정답률(Avg@N)의 차이를 문항 단위 paired bootstrap으로 비교한다 (전체, Music, 과목별).
@@ -33,7 +35,7 @@ def stats(rows):
     }
 
 
-def summarize(root):
+def summarize(root, subject=None):
     root = Path(root)
     dirs = run_dirs(root)
     if not dirs:
@@ -42,6 +44,8 @@ def summarize(root):
     per_run, per_subject, per_question = [], {}, {}
     for d in dirs:
         rows = load_run(d)
+        if subject:
+            rows = [r for r in rows if r["subject"] == subject]
         overall = stats(rows)
         music = stats([r for r in rows if r["subject"] == "Music"])
         per_run.append({"run": d.name, "overall": overall, "music": music})
@@ -89,18 +93,20 @@ def paired_bootstrap(a, b, n_boot=10000, seed=0):
     return float(diff.mean()), float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))
 
 
-def question_means(root):
+def question_means(root, subject=None):
     acc, subj = {}, {}
     for d in run_dirs(root):
         for r in load_run(d):
+            if subject and r["subject"] != subject:
+                continue
             acc.setdefault(r["id"], []).append(bool(r["correct"]))
             subj[r["id"]] = r["subject"]
     return {i: float(np.mean(v)) for i, v in acc.items()}, subj
 
 
-def compare(base_root, new_root):
-    base, subj = question_means(base_root)
-    new, _ = question_means(new_root)
+def compare(base_root, new_root, subject=None):
+    base, subj = question_means(base_root, subject)
+    new, _ = question_means(new_root, subject)
     ids = sorted(set(base) & set(new))
     if len(ids) != len(base) or len(ids) != len(new):
         print(f"⚠️ 문항 집합이 다르다: base {len(base)}, new {len(new)}, 공통 {len(ids)}")
@@ -121,9 +127,15 @@ def compare(base_root, new_root):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "summary":
-        summarize(sys.argv[2])
-    elif len(sys.argv) == 4 and sys.argv[1] == "compare":
-        compare(sys.argv[2], sys.argv[3])
+    args = sys.argv[1:]
+    subject = None
+    if "--subject" in args:
+        i = args.index("--subject")
+        subject = args[i + 1]
+        del args[i:i + 2]
+    if len(args) == 2 and args[0] == "summary":
+        summarize(args[1], subject)
+    elif len(args) == 3 and args[0] == "compare":
+        compare(args[1], args[2], subject)
     else:
         raise SystemExit(__doc__)

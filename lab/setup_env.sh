@@ -59,6 +59,19 @@ pip install "trl==1.16.0" peft "datasets>=4.7.0" huggingface_hub Pillow pyarrow 
 # Colab에서 PEFT와 충돌했던 낡은 torchao가 깔려 있으면 제거 (우리는 쓰지 않는다)
 pip uninstall -y -q torchao 2>/dev/null || true
 
+# vLLM/trl 설치가 torch를 다른 CUDA 빌드로 바꾸지 않았는지 확인한다 (바뀌었다면 드라이버와 맞지 않을 수 있다)
+python - "$CUDA_MAJOR" "$CUDA_MINOR" <<'PY'
+import sys, torch
+major, minor = int(sys.argv[1]), int(sys.argv[2])
+cuda = torch.version.cuda or "없음"
+print(f"설치된 torch {torch.__version__} (CUDA {cuda})")
+if major == 12 and not cuda.startswith("12.9"):
+    sys.exit(f"torch가 CUDA {cuda} 빌드로 설치됐다 (기대 12.9). vLLM 설치가 torch를 바꿨을 수 있다. torch를 cu129 index에서 다시 설치하세요.")
+if major >= 13 and not cuda.startswith("13"):
+    sys.exit(f"torch가 CUDA {cuda} 빌드로 설치됐다 (기대 13.x).")
+PY
+
 pip freeze > requirements_lab.lock.txt
-echo ">>> 설치 완료. 점검:"
-python lab/check_env.py
+echo ">>> 설치 완료. lock 파일: requirements_lab.lock.txt (보고서의 패키지 버전 기록으로 쓴다)"
+python lab/env_triage.py
+echo ">>> 다음: HF_TOKEN을 .env에 넣고 'bash lab/run_pipeline.sh env smoke'"
