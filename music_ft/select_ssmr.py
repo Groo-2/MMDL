@@ -159,10 +159,16 @@ def main():
     parser.add_argument("--start-server", action="store_true", help="vLLM 서버를 직접 띄우고 끝나면 종료")
     parser.add_argument("--select-only", action="store_true", help="측정은 건너뛰고 screen_results.jsonl로 선별만")
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 후보 앞 N개만")
+    parser.add_argument("--max-images", type=int, default=None,
+                        help="이미지가 N장을 넘는 문항은 후보에서 제외 (24GB 학습은 1: 5장 문항은 스텝 78분+메모리 한계)")
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
     rows = load_rows(data_dir / args.train_file)
+    if args.max_images:
+        before = len(rows)
+        rows = [r for r in rows if len(r["image_paths"]) <= args.max_images]
+        print(f"[max-images {args.max_images}] {before} → {len(rows)}문항:", dict(Counter(r["category"] for r in rows)))
     pool = build_pool(rows, args.pool_size)
     if args.limit:
         pool = pool[: args.limit]

@@ -88,7 +88,8 @@ run_stage() {
     screen)
       run python lab/preflight.py --stage screen --data-dir "$DATA_DIR" || return $?
       run python music_ft/select_ssmr.py --data-dir "$DATA_DIR" --model "$MODEL" --revision "$REVISION" \
-        --pool-size "$POOL" --per-category "$PER_CAT" --max-tokens "$MAX_COMPLETION" --start-server
+        --pool-size "$POOL" --per-category "$PER_CAT" --max-tokens "$MAX_COMPLETION" \
+        --max-images "${MAX_IMAGES:-1}" --start-server
       ;;
     stress)
       run python lab/preflight.py --stage train --data-dir "$DATA_DIR" || return $?
