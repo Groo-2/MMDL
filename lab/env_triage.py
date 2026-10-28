@@ -73,23 +73,30 @@ def driver_vs_torch(driver_cuda, torch_cuda):
 
 
 def find_nvidia_wheel_mix(installed, torch_cuda):
-    """nvidia-<lib>-cuNN wheel 중 같은 라이브러리가 두 CUDA 계열로 섞였거나, torch와 다른 계열이 있으면 문제 목록을 돌려준다."""
+    """nvidia-<lib>-cuNN wheel 점검. 반환: (hard, soft)
+    hard: 같은 라이브러리의 cu12/cu13 **버전이 서로 다름**(Colab 사고: cuDNN 9.27 vs 9.20이 같은 폴더에 섞여
+          CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH), 또는 torch의 CUDA 계열 빌드가 없음 -> FAIL
+    soft: cu12/cu13이 **같은 버전**으로 함께 설치됨. 바이너리가 서로 덮어쓰였을 수는 있지만 버전 불일치는 아니다
+          (이 실습실 mmdl 환경이 이 상태이고 conv3d cuDNN 스모크가 통과함) -> WARN"""
     by_lib = {}
     for name, ver in installed.items():
         m = re.fullmatch(r"nvidia-(.+)-cu(\d+)", name)
         if m:
             by_lib.setdefault(m.group(1), {})[m.group(2)] = ver
-    problems = []
+    hard, soft = [], []
     for lib, variants in sorted(by_lib.items()):
         if len(variants) > 1:
             shown = ", ".join(f"cu{k}={v}" for k, v in sorted(variants.items()))
-            problems.append(f"{lib}: {shown} (같은 폴더에 섞여 설치되면 하위 라이브러리 버전이 어긋남)")
+            if len(set(variants.values())) > 1:
+                hard.append(f"{lib}: {shown} (버전이 다른 cu12/cu13이 같은 폴더에 섞이면 하위 라이브러리 버전이 어긋남)")
+            else:
+                soft.append(f"{lib}: {shown} (같은 버전이지만 cu12/cu13 빌드가 함께 설치됨)")
     if torch_cuda:
         want = torch_cuda.split(".")[0]
         for lib, variants in sorted(by_lib.items()):
             if want not in variants:
-                problems.append(f"{lib}: torch는 CUDA {torch_cuda}인데 cu{want} 빌드가 없고 {sorted('cu' + k for k in variants)}만 있다")
-    return problems
+                hard.append(f"{lib}: torch는 CUDA {torch_cuda}인데 cu{want} 빌드가 없고 {sorted('cu' + k for k in variants)}만 있다")
+    return hard, soft
 
 
 def check_versions(installed):
@@ -173,9 +180,13 @@ def run_checks(allow_no_gpu=False, lock_path=None):
 
     # 2) cu12/cu13 혼재
     pkgs = installed_packages()
-    problems = find_nvidia_wheel_mix(pkgs, torch_cuda)
-    if problems:
-        add(FAIL, "NVIDIA wheel 혼재/불일치", "\n      ".join(problems))
+    hard, soft = find_nvidia_wheel_mix(pkgs, torch_cuda)
+    if hard:
+        add(FAIL, "NVIDIA wheel 혼재/불일치", "\n      ".join(hard))
+    elif soft:
+        add(WARN, "NVIDIA wheel: cu12/cu13이 같은 버전으로 함께 설치됨",
+            "\n      ".join(soft) + "\n      -> 버전 불일치는 아니다. 아래 conv3d(cuDNN) 스모크가 통과하면 문제없는 것으로 본다. "
+            "cuDNN 에러가 나면 가장 먼저 의심: pip install --force-reinstall --no-deps nvidia-cudnn-cu12==<위 버전>")
     else:
         add(OK, "NVIDIA wheel 혼재 없음", f"nvidia-* 패키지 {sum(1 for n in pkgs if n.startswith('nvidia-'))}개")
 
