@@ -49,6 +49,14 @@ bash lab/setup_env.sh                           # torch/vLLM은 이미 맞으면
 ```
 `mmdl`이 없거나 버전이 다르면 방법 B로 가세요.
 
+**환경 점검에 `NVIDIA wheel: cu12/cu13이 같은 버전으로 함께 설치됨` 경고가 나올 때 (이 PC의 mmdl이 이 상태):** 학습에는 지장이 없을 수 있지만(conv3d 스모크 통과), cu12와 cu13 파일이 같은 경로를 덮어쓰는 구조라 cuDNN 에러의 원인이 될 수 있습니다. 쓰지 않는 cu13을 정리하려면:
+```bash
+python lab/fix_nvidia_wheels.py            # 계획만 출력 (아무것도 바꾸지 않음). 지울 것과 복구할 것을 확인
+python lab/fix_nvidia_wheels.py --apply    # cu13을 지우고 cu12를 같은 버전으로 다시 설치해 파일을 되살림 (pip freeze를 logs/에 먼저 저장)
+python lab/env_triage.py                   # NVIDIA wheel 항목이 OK로 바뀌고 FAIL 0개인지 확인
+```
+cu13만 지우면 cu12가 쓰는 파일까지 같이 지워지므로 **반드시 이 스크립트로** 하세요 (지운 뒤 cu12를 복구까지 합니다).
+
 **방법 B: 새 가상환경.**
 ```bash
 bash lab/setup_env.sh

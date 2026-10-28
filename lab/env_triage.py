@@ -186,7 +186,7 @@ def run_checks(allow_no_gpu=False, lock_path=None):
     elif soft:
         add(WARN, "NVIDIA wheel: cu12/cu13이 같은 버전으로 함께 설치됨",
             "\n      ".join(soft) + "\n      -> 버전 불일치는 아니다. 아래 conv3d(cuDNN) 스모크가 통과하면 문제없는 것으로 본다. "
-            "cuDNN 에러가 나면 가장 먼저 의심: pip install --force-reinstall --no-deps nvidia-cudnn-cu12==<위 버전>")
+            "쓰지 않는 쪽(cu13)을 정리하려면: python lab/fix_nvidia_wheels.py (계획만 출력) -> python lab/fix_nvidia_wheels.py --apply")
     else:
         add(OK, "NVIDIA wheel 혼재 없음", f"nvidia-* 패키지 {sum(1 for n in pkgs if n.startswith('nvidia-'))}개")
 
