@@ -408,5 +408,177 @@ class SummarizeSubject(unittest.TestCase):
             self.assertAlmostEqual(S.summarize(d)["overall_acc_mean_std"][0], (0.625 + 0.75) / 2)
 
 
+class McqValidator(unittest.TestCase):
+    """팀원이 만들 MusiXQA 객관식의 형식 규칙이 실제로 위반을 잡는지 확인한다."""
+
+    def args(self, **kw):
+        import argparse
+
+        base = dict(id_prefix="musixqa", max_images=1, require_doc=True, check_images=True, max_per_doc=2,
+                    min_train_per_category=200, min_holdout_per_category=40, allow_image_options=False)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def make(self, mutate=None, n_train=240, n_hold=60):
+        """정상 데이터셋을 만든다. mutate(train_rows, hold_rows)로 일부러 망가뜨린다."""
+        from PIL import Image
+
+        d = Path(tempfile.mkdtemp())
+        (d / "images").mkdir()
+        cats = ["Key", "TimeSignature", "PitchReading"]
+        letters = "ABCD"
+
+        def rows(split, n, doc_offset):
+            out = []
+            for i in range(n):
+                doc = f"{doc_offset + i // 2:07d}"          # 문서당 2문항
+                img = f"images/{doc}.png"
+                if not (d / img).exists():
+                    Image.new("RGB", (40, 60), "white").save(d / img)
+                ans = letters[i % 4]
+                opts = [f"opt{i}_{k}x" * (1 + (k + i) % 3) for k in range(4)]   # 길이가 제각각이라 지름길 경고가 안 난다
+                out.append({"id": f"musixqa_{split}_{i:05d}", "question": f"<image 1> Question {i}?", "options": opts,
+                            "question_type": "multiple-choice", "answer": ans, "image_paths": {"image_1": img},
+                            "category": cats[i % 3], "source_doc_id": doc,
+                            "source_split": "train" if split == "train" else "test"})
+            return out
+
+        tr, ho = rows("train", n_train, 0), rows("holdout", n_hold, 100000)
+        if mutate:
+            mutate(tr, ho)
+        for name, rs in (("train", tr), ("holdout", ho)):
+            (d / f"{name}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rs))
+        return d
+
+    def run_v(self, mutate=None, **kw):
+        import validate_mcq_dataset as V
+
+        d = self.make(mutate)
+        return V.validate_dataset(d, self.args(**kw))
+
+    def assert_error(self, report, fragment):
+        self.assertTrue(any(fragment in e for e in report["errors"]), f"'{fragment}' ERROR가 없다: {report['errors'][:3]}")
+
+    def test_valid_dataset_passes(self):
+        rep = self.run_v()
+        self.assertEqual(rep["errors"], [], rep["errors"][:3])
+
+    def test_literal_backslash_n_in_option(self):          # SSMR 원본에서 실제로 있던 결함
+        def m(tr, ho):
+            tr[0]["options"][3] = "F#\\n"
+
+        self.assert_error(self.run_v(m), "줄바꿈")
+
+    def test_surrounding_whitespace_and_duplicates(self):
+        def m(tr, ho):
+            tr[0]["options"][0] = " padded"
+            tr[1]["options"][1] = tr[1]["options"][0].upper()       # 대소문자만 다른 중복
+
+        rep = self.run_v(m)
+        self.assert_error(rep, "공백")
+        self.assert_error(rep, "같은")
+
+    def test_option_count_and_answer_letter(self):
+        def m(tr, ho):
+            tr[0]["options"] = tr[0]["options"][:3]
+            tr[1]["answer"] = "E"
+
+        rep = self.run_v(m)
+        self.assert_error(rep, "정확히 4개")
+        self.assert_error(rep, "answer는")
+
+    def test_question_prefix_and_extra_images(self):
+        def m(tr, ho):
+            tr[0]["question"] = "Question without image tag"
+            tr[1]["question"] = "<image 1> see <image 2> too"
+
+        rep = self.run_v(m)
+        self.assert_error(rep, "'<image 1> '")
+        self.assert_error(rep, "이미지는 1장")
+
+    def test_image_options_rejected_by_default_but_allowed_for_ssmr(self):
+        def m(tr, ho):
+            tr[0]["options"] = ["<image 2>", "<image 3>", "<image 4>", "<image 5>"]
+
+        self.assert_error(self.run_v(m), "텍스트 선택지만")
+        rep = self.run_v(m, allow_image_options=True, max_images=5)
+        self.assertFalse(any("텍스트 선택지만" in e for e in rep["errors"]))
+
+    def test_missing_image_file(self):
+        def m(tr, ho):
+            tr[0]["image_paths"] = {"image_1": "images/nope.png"}
+
+        self.assert_error(self.run_v(m), "파일이 없다")
+
+    def test_id_prefix_and_duplicates(self):
+        def m(tr, ho):
+            tr[0]["id"] = "train_00000"
+            tr[2]["id"] = tr[1]["id"]
+
+        rep = self.run_v(m)
+        self.assert_error(rep, "로 시작해야")
+        self.assert_error(rep, "id 중복")
+
+    def test_train_and_holdout_must_not_share_documents(self):
+        def m(tr, ho):
+            ho[0]["source_doc_id"] = tr[0]["source_doc_id"]
+
+        self.assert_error(self.run_v(m), "같은 문서를 쓴다")
+
+    def test_source_split_must_match(self):
+        def m(tr, ho):
+            ho[0]["source_split"] = "train"      # hold-out은 원본 test 문서여야 한다
+
+        self.assert_error(self.run_v(m), "source_split")
+
+    def test_too_many_questions_per_document(self):
+        def m(tr, ho):
+            for r in tr[:5]:
+                r["source_doc_id"] = tr[0]["source_doc_id"]
+
+        self.assert_error(self.run_v(m), "문항을 넘게")
+
+    def test_label_conflict_on_same_document_and_question(self):
+        def m(tr, ho):
+            tr[1]["question"], tr[1]["source_doc_id"] = tr[0]["question"], tr[0]["source_doc_id"]
+            tr[1]["image_paths"] = tr[0]["image_paths"]
+            tr[1]["options"] = list(tr[0]["options"])
+            tr[1]["answer"] = "A" if tr[0]["answer"] != "A" else "B"
+
+        self.assert_error(self.run_v(m), "정답이 다른")
+
+    def test_answer_position_imbalance(self):
+        def m(tr, ho):
+            for r in tr:
+                r["answer"] = "A"
+
+        self.assert_error(self.run_v(m), "정답 위치")
+
+    def test_length_shortcut_warning(self):
+        def m(tr, ho):
+            for r in tr:
+                k = "ABCD".index(r["answer"])
+                r["options"] = ["short" if j != k else "a much much longer correct option" for j in range(4)]
+                r["options"] = [o + f" {j}" for j, o in enumerate(r["options"])]
+
+        import validate_mcq_dataset as V
+
+        rep = V.validate_dataset(self.make(m, n_train=360), self.args())      # 카테고리당 120개 (검사는 100개 이상에서 작동)
+        self.assertTrue(any("가장 긴 선택지" in w for w in rep["warnings"]), rep["warnings"][:3])
+        clean = V.validate_dataset(self.make(None, n_train=360), self.args())
+        self.assertFalse(any("가장 긴 선택지" in w for w in clean["warnings"]))
+
+    def test_cli_exit_codes(self):
+        d = self.make()
+        ok = subprocess.run([sys.executable, str(REPO / "lab" / "validate_mcq_dataset.py"), "--data-dir", str(d)],
+                            capture_output=True, text=True)
+        self.assertEqual(ok.returncode, 0, ok.stdout)
+        self.assertTrue((d / "validation_report.json").exists())
+        bad = self.make(lambda tr, ho: tr[0].__setitem__("answer", "Z"))
+        out = subprocess.run([sys.executable, str(REPO / "lab" / "validate_mcq_dataset.py"), "--data-dir", str(bad)],
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
