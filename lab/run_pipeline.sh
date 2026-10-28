@@ -2,14 +2,14 @@
 # 실습실(RTX 4090 24GB) E0 baseline + E1 SSMR GRPO 파이프라인. 저장소 루트에서 실행하고, 오래 걸리므로 tmux 안에서 돌린다.
 #
 #   tmux new -s mmdl
-#   bash lab/run_pipeline.sh env smoke             # 환경 점검 + Music 1회 (시간/동작 확인)
+#   bash lab/run_pipeline.sh env vllm_check smoke  # 환경 점검 + vLLM 서버 기동 확인(2~4분) + Music 1회 (시간/동작 확인)
 #   bash lab/run_pipeline.sh data screen stress    # SSMR 변환, 통과율 측정+선별, GRPO 최악 조건 1스텝
 #   bash lab/run_pipeline.sh pilot                 # GRPO 2스텝 (스텝 시간 실측)
 #   bash lab/run_pipeline.sh baseline_music4 holdout_base baseline_full2
 #   bash lab/run_pipeline.sh grpo merge holdout_new music4 full2 report
 #   bash lab/run_pipeline.sh all                   # 위 전부를 순서대로 (music_extend 제외)
 #
-# 단계: env preflight smoke data screen stress pilot baseline_music4 baseline_full2 holdout_base
+# 단계: env preflight vllm_check smoke data screen stress pilot baseline_music4 baseline_full2 holdout_base
 #       grpo merge holdout_new music4 full2 report  /  music_extend_base music_extend_new (아래 주의)
 #
 # 주의 1) 단계가 실패하면 코드를 고치기 전에 CUDA/패키지 점검(lab/env_triage.py)을 자동으로 먼저 실행한다.
@@ -72,6 +72,10 @@ run_stage() {
   case "$stage" in
     env)       run python lab/env_triage.py ;;
     preflight) run python lab/preflight.py --stage eval ;;
+    vllm_check)
+      run python lab/preflight.py --stage vllm || return $?
+      run python lab/check_vllm.py
+      ;;
     smoke)
       run python lab/preflight.py --stage eval || return $?
       run python lab/eval_repeat.py --tag smoke --model "$MODEL" --revision "$REVISION" --runs 1 --subject Music

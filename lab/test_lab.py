@@ -149,6 +149,7 @@ class PreflightLogic(unittest.TestCase):
             for stage in ("eval", "screen", "holdout"):
                 self.assertEqual(gpu(stage)[0], P.FAIL, stage)
             self.assertEqual(gpu("train")[0], P.OK)
+            self.assertEqual(gpu("vllm")[0], P.OK)          # vllm_check는 0.85 x 전체 = 20.4GiB만 요구 (여유 21.0GiB면 통과)
         finally:
             os.environ["PATH"] = old
 
@@ -405,6 +406,13 @@ class PipelineScript(unittest.TestCase):
                                   "grpo", "merge", "holdout_new", "music4", "full2", "report"])
         self.assertNotIn("music_extend", out.stdout)
         self.assertNotIn("CONFIRM_EXTEND_TO_8=yes", out.stdout.split("report")[0])
+
+    def test_vllm_check_stage(self):
+        out = self.run_pipeline("vllm_check")
+        self.assertEqual(out.returncode, 0, out.stdout)
+        cmds = [l for l in out.stdout.splitlines() if l.startswith("+ ")]
+        self.assertTrue(cmds[0].startswith("+ python lab/preflight.py --stage vllm"))
+        self.assertEqual(cmds[1], "+ python lab/check_vllm.py")
 
     def test_each_long_job_runs_preflight_first(self):
         out = self.run_pipeline("grpo", "baseline_full2", "holdout_new").stdout.splitlines()

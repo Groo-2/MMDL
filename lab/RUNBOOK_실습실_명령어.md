@@ -85,9 +85,10 @@ tmux new -s mmdl
 ### 5-1. 환경 점검 + 동작·속도 확인 (약 1시간)
 
 ```bash
-bash lab/run_pipeline.sh env smoke
+bash lab/run_pipeline.sh env vllm_check smoke
 ```
-- `env`: CUDA·패키지 점검. `smoke`: Music 30문항을 1번 풀고 Llama judge로 채점합니다 (서버가 뜨는지, judge가 도는지까지 확인).
+- `env`: CUDA·패키지 점검. `vllm_check`: **평가와 같은 방법으로 vLLM 서버를 띄워 보는 2~4분짜리 확인** (실패하면 원인을 알려 줍니다). `smoke`: Music 30문항을 1번 풀고 Llama judge로 채점합니다 (서버가 뜨는지, judge가 도는지까지 확인).
+- **직접 `vllm serve ...`를 치지 마세요.** WSL2에서는 우리가 항상 붙이는 환경변수(`VLLM_USE_V2_MODEL_RUNNER=0`)가 빠지면 `RuntimeError: UVA is not available`로 실패합니다 (2026-10-28 확인). `vllm_check`나 파이프라인 단계를 쓰면 자동으로 붙습니다.
 - 확인할 것: 마지막에 `Music Avg@1: ...` 같은 요약이 나오고 에러가 없을 것. 기준 baseline(Run B)은 5/30(0.167)이며, 샘플링 때문에 달라질 수 있습니다.
 - 소요 시간을 적어 두세요 (이 값 × 4 ≈ `music4`).
 
