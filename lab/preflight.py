@@ -4,6 +4,7 @@
   python lab/preflight.py --stage screen    # SSMR 통과율 측정 (vLLM 서버)
   python lab/preflight.py --stage train     # GRPO 학습
   python lab/preflight.py --stage holdout   # SSMR hold-out 평가
+  python lab/preflight.py --stage vllm      # vLLM 서버 기동 확인(check_vllm.py)
   옵션: --offline (Llama 접근 권한의 네트워크 확인 생략)
 종료 코드: FAIL이 있으면 1.
 """
@@ -102,14 +103,16 @@ def stage_checks(stage, offline=False, data_dir=None):
     except Exception:  # noqa: BLE001
         pass
     res = []
-    if stage in ("eval", "screen", "train", "holdout"):
+    if stage in ("eval", "screen", "train", "holdout", "vllm"):
         if not nvsmi.strip():
             res.append((FAIL, "nvidia-smi를 실행할 수 없다 (GPU/드라이버 없음)"))
         elif stage == "train":
             res.append(check_gpu_free(nvsmi, need_gb=20))
+        elif stage == "vllm":
+            res.append(check_gpu_free(nvsmi, frac=0.85))      # check_vllm.py의 --gpu-memory-utilization 0.85
         else:
             res.append(check_gpu_free(nvsmi, frac=0.90))      # vLLM --gpu-memory-utilization 0.90이 시작할 때 요구하는 양
-    if stage in ("eval", "screen", "holdout"):
+    if stage in ("eval", "screen", "holdout", "vllm"):
         res.append(check_port_free(8000))
     if stage == "eval":
         res.append(check_port_free(8001))
@@ -129,7 +132,7 @@ def stage_checks(stage, offline=False, data_dir=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--stage", required=True, choices=["eval", "screen", "train", "holdout"])
+    parser.add_argument("--stage", required=True, choices=["eval", "screen", "train", "holdout", "vllm"])
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--data-dir", default=None)
     args = parser.parse_args()

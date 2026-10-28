@@ -28,7 +28,7 @@ echo 'HF_TOKEN=hf_...' > .env
 
 ```bash
 tmux new -s mmdl
-bash lab/run_pipeline.sh env smoke              # ① 환경 점검 + Music 30문항 1회 (시간/동작 확인)
+bash lab/run_pipeline.sh env vllm_check smoke  # ① 환경 점검 + vLLM 서버 기동 확인 + Music 30문항 1회 (시간/동작 확인)
 bash lab/run_pipeline.sh data screen stress     # ② SSMR 변환, 통과율 측정+1,120문항 선별, GRPO 최악 조건 1스텝
 bash lab/run_pipeline.sh pilot                  # ③ GRPO 2스텝 (스텝 시간 실측)
 bash lab/run_pipeline.sh baseline_music4 holdout_base baseline_full2     # ④ E0
