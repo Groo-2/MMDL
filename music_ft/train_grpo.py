@@ -48,6 +48,27 @@ SEED = 42
 NUM_GENERATIONS = 8  # 논문: rollout 8
 
 
+def _start_mem_logger(period=30):
+    """rollout(생성) 중에는 로그가 없으므로, GPU 메모리를 주기적으로 찍어 어느 단계에서 한계에 닿는지 보이게 한다."""
+    import threading
+    import time
+
+    import torch
+
+    def loop():
+        t0 = time.time()
+        while True:
+            time.sleep(period)
+            free, total = torch.cuda.mem_get_info()
+            print(f"[mem] {time.time() - t0:.0f}s  할당 {torch.cuda.memory_allocated() / 2 ** 30:.1f}GB, "
+                  f"예약 {torch.cuda.memory_reserved() / 2 ** 30:.1f}GB, 최대 {torch.cuda.max_memory_allocated() / 2 ** 30:.1f}GB, "
+                  f"GPU 여유 {free / 2 ** 30:.1f}/{total / 2 ** 30:.1f}GB", flush=True)
+
+    th = threading.Thread(target=loop, daemon=True)
+    th.start()
+    return th
+
+
 class Heartbeat:
     """한 스텝이 끝나기 전에는 tqdm이 갱신되지 않으므로, micro-batch 진행을 주기적으로 출력한다."""
 
@@ -69,6 +90,8 @@ class Heartbeat:
                 torch.cuda.empty_cache()
                 self.micro = 0
                 self.step_t0 = time.time()
+                if not getattr(self, "_mem_thread", None):
+                    self._mem_thread = _start_mem_logger()
                 print(f"[heartbeat] step {state.global_step + 1} 시작 (rollout 포함, 경과 {time.time() - self.t0:.0f}s)", flush=True)
 
             def on_substep_end(self, args, state, control, **kwargs):
@@ -230,6 +253,8 @@ def main():
     parser.add_argument("--vllm-mem", type=float, default=0.35, help="--rollout vllm일 때만")
     parser.add_argument("--save-steps", type=int, default=25)
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
+    parser.add_argument("--max-images", type=int, default=None,
+                        help="이미지가 N장을 넘는 문항은 학습·stress에서 제외한다 (해상도는 그대로. 24GB 메모리용)")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--stress", action="store_true",
                         help="가장 긴(이미지 5장) 프롬프트 prompts-per-step개로 1스텝만 실행해 메모리 한계를 미리 확인한다")
@@ -256,6 +281,10 @@ def main():
     snapshot(output_dir, extra={"tool": "train_grpo", "args": {k: str(v) for k, v in vars(args).items()}})
 
     examples = load_examples(data_dir, output_dir / "jpeg", args.train_file, args.limit)
+    if args.max_images:
+        before = len(examples)
+        examples = [e for e in examples if len(e["images"]) <= args.max_images]
+        print(f"[max-images {args.max_images}] 이미지 {args.max_images}장 이하 문항만 사용: {before} → {len(examples)}")
     if args.stress:
         examples = pick_stress_examples(examples, args.prompts_per_step)
         args.max_steps = 1
