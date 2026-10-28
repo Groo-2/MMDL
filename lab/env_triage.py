@@ -63,8 +63,12 @@ def driver_vs_torch(driver_cuda, torch_cuda):
         return FAIL, "설치된 torch가 CUDA 빌드가 아니다 (CPU 빌드)"
     t = tuple(int(x) for x in torch_cuda.split(".")[:2])
     if driver_cuda < t:
-        return FAIL, (f"드라이버가 지원하는 CUDA {driver_cuda[0]}.{driver_cuda[1]} < torch CUDA {torch_cuda}. "
-                      "드라이버를 올리거나 더 낮은 CUDA용 torch를 설치해야 한다 (RTX 4090은 forward-compat 불가)")
+        if driver_cuda[0] == t[0]:   # 같은 메이저(12.x): CUDA 마이너 버전 호환으로 실행된다
+            return WARN, (f"드라이버 CUDA {driver_cuda[0]}.{driver_cuda[1]} < torch CUDA {torch_cuda}: CUDA 마이너 버전 호환으로 실행된다 "
+                          "(NVIDIA: 12.x 프로그램은 드라이버 >=525에서 실행 가능). 이 실습실 PC(드라이버 560.94)에서 cu129로 vLLM을 실행한 이력이 있다. "
+                          "특정 기능이 실패하면 드라이버(WSL이면 Windows 드라이버)를 올려 보세요")
+        return FAIL, (f"드라이버가 지원하는 CUDA {driver_cuda[0]}.{driver_cuda[1]} < torch CUDA {torch_cuda} (메이저 버전이 다르다). "
+                      "드라이버를 올리거나 다른 CUDA용 torch를 설치해야 한다 (RTX 4090은 forward-compat 불가)")
     return OK, f"드라이버 CUDA {driver_cuda[0]}.{driver_cuda[1]} >= torch CUDA {torch_cuda}"
 
 

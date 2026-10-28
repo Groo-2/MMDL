@@ -17,6 +17,7 @@
 #         확인했다면 직접:  CONFIRM_EXTEND_TO_8=yes bash lab/run_pipeline.sh music_extend_base music_extend_new
 # 모든 단계는 같은 커맨드를 다시 실행하면 이어서 한다 (추론 resume, 학습 --resume).
 # 환경변수: STEPS=140 PROMPTS_PER_STEP=8 PER_CAT=280 POOL=3000 MAX_COMPLETION=2048 TAG_BASE=baseline TAG_NEW=grpo_run1
+#           CONDA_ENV=mmdl_lab (venv 대신 conda 환경을 쓸 때. tmux 안에서 conda activate는 하지 말고 이 변수만 export)
 #           DRY_RUN=1 (명령만 출력하고 실행하지 않음)
 set -uo pipefail
 
@@ -24,8 +25,14 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DRY_RUN="${DRY_RUN:-0}"
 if [[ "$DRY_RUN" != "1" ]]; then
-  # shellcheck disable=SC1091
-  source "${VENV:-.venv_lab}/bin/activate"
+  if [[ -n "${CONDA_ENV:-}" ]]; then
+    # shellcheck disable=SC1091
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate "$CONDA_ENV"
+  else
+    # shellcheck disable=SC1091
+    source "${VENV:-.venv_lab}/bin/activate"
+  fi
 fi
 
 STEPS="${STEPS:-140}"

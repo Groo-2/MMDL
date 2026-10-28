@@ -12,7 +12,8 @@
 
 | 항목 | 내용 |
 |---|---|
-| 드라이버 | `nvidia-smi` 맨 위 **CUDA Version이 12.9 이상** (vLLM 0.27.1의 CUDA 12 빌드는 `cu129`뿐). 미만이면 `setup_env.sh`가 이유를 알려 주고 멈춥니다 |
+| 드라이버 | `nvidia-smi` 맨 위 **CUDA Version이 12 이상**이면 됩니다. 13.x면 vLLM 기본 wheel, 12.x면 `cu129` wheel을 씁니다. **12.9보다 낮아도(예: 12.6) CUDA 마이너 버전 호환으로 실행**되고, 이 실습실 PC(WSL2, 드라이버 560.94 = CUDA 12.6)에서 `torch 2.13.0+cu129`와 `vllm 0.27.1+cu129`로 평가를 실행한 이력이 있습니다 (2026-10-14 music_resolution, 10-20 pilot20). 12 미만이면 `setup_env.sh`가 멈춥니다 |
+| WSL2 | 이 PC는 WSL2입니다. GPU 드라이버는 **Windows 쪽**이라 Linux 안에서 드라이버를 설치하지 않습니다 (올려야 하면 Windows의 NVIDIA 드라이버 업데이트). Windows 앱이 VRAM을 쓰면 vLLM이 안 뜰 수 있어서(`preflight`가 확인) 긴 작업 중에는 GPU를 쓰는 Windows 앱을 닫고, 절전과 자동 재시작을 끄고, tmux를 붙여 둔 터미널 창을 닫지 마세요 |
 | Python | 3.11 이상 (`PYTHON=python3.12 bash lab/setup_env.sh`) |
 | 디스크 | 약 60GB (Qwen 9GB + Llama 16GB + 데이터 + 체크포인트·결과) |
 | HF 토큰 | `meta-llama/Llama-3.1-8B-Instruct` 라이선스 동의 + 저장소 루트 `.env`에 `HF_TOKEN=hf_...` (커밋 금지) |
@@ -72,7 +73,7 @@ CONFIRM_EXTEND_TO_8=yes bash lab/run_pipeline.sh music_extend_base music_extend_
 ```bash
 python lab/env_triage.py     # logs/env_triage_<시각>.txt 저장
 ```
-점검 항목: ① 드라이버 CUDA ≥ torch CUDA ② `nvidia-*-cu12`와 `-cu13` wheel 혼재(Colab에서 `CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`의 원인) ③ torch/vllm/trl/transformers 버전이 기대값(torch 2.13.0, vllm 0.27.1, trl 1.16.0, transformers ≥ 5.5.3)과 lock에 맞는지 ④ `pip check` ⑤ bf16 matmul, conv3d 스모크.
+점검 항목: ① 드라이버 CUDA가 torch CUDA 이상인지 (같은 12.x에서 낮으면 마이너 버전 호환이라 경고만) ② `nvidia-*-cu12`와 `-cu13` wheel 혼재(Colab에서 `CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`의 원인) ③ torch/vllm/trl/transformers 버전이 기대값(torch 2.13.0, vllm 0.27.1, trl 1.16.0, transformers ≥ 5.5.3)과 lock에 맞는지 ④ `pip check` ⑤ bf16 matmul, conv3d 스모크.
 
 FAIL이 없는데도 실패하면 그때 에러 로그 자체를 봅니다. 긴 작업 전에는 `python lab/preflight.py --stage eval|screen|train|holdout`이 디스크, GPU 점유, 포트, HF 토큰, 파일을 점검합니다 (파이프라인이 단계마다 먼저 실행).
 
@@ -85,6 +86,6 @@ FAIL이 없는데도 실패하면 그때 에러 로그 자체를 봅니다. 긴 
 | 학습 중 `grad_norm 0` | 로그의 `reward_std`, `frac_reward_zero_std` 확인 (통과율 필터로 학습 신호가 있는 문항만 쓰도록 선별했음) |
 
 ## 4. 알려진 한계 (실습실에서 처음 해 보는 것)
-- Mac에는 GPU/vLLM이 없어서 **드라이버·CUDA 빌드, vLLM 서버 기동, GPU 메모리**는 실습실에서만 확인됩니다. Mac에서 검증한 것: 설정·선별 로직, 요청 형식과 채점(가짜 서버), merge 정확성, 안전장치, 파이프라인 단계 순서 (`python -m unittest lab.test_lab`, 30개).
+- Mac에는 GPU/vLLM이 없어서 **드라이버·CUDA 빌드, vLLM 서버 기동, GPU 메모리**는 실습실에서만 확인됩니다. Mac에서 검증한 것: 설정·선별 로직, 요청 형식과 채점(가짜 서버), merge 정확성, 안전장치, 파이프라인 단계 순서 (`python -m unittest lab.test_lab`).
 - 학습 rollout은 HF generate(24GB에서 vLLM colocate 불가)라 느리고, presence_penalty 1.5를 쓰지 못합니다 (평가는 그대로 사용).
 - GRPO 예산은 논문의 약 3%입니다. 효과는 장담할 수 없고, 학습 seed가 하나(42)라 학습 난수의 영향은 분리하지 못합니다.
