@@ -12,12 +12,15 @@
 ## 0. 시작 전 확인 (1분)
 
 ```bash
-nvidia-smi                 # 맨 위 오른쪽 "CUDA Version: 12.9" 이상이어야 합니다
+nvidia-smi                 # 맨 위 오른쪽 "CUDA Version"이 12.x 이상이면 됩니다 (이 PC는 12.6이어도 됩니다)
+uname -r                   # "microsoft-standard-WSL2"가 보이면 WSL2 (이 PC)
+free -h                    # WSL 메모리. Llama judge를 쓰려면 32GB 이상 권장
 python3 --version          # 3.11 이상
 df -h .                    # 여유 공간 60GB 이상
 tmux -V                    # 없으면 설치를 요청하세요
 ```
-- `CUDA Version`이 **12.9 미만**이면 3번(설치)에서 멈춥니다. 이 경우 바로 알려 주세요 (드라이버를 올려야 합니다).
+- `CUDA Version`이 12.6처럼 12.9 미만이어도 괜찮습니다. 이 PC는 같은 조합(`torch 2.13.0+cu129`, `vllm 0.27.1+cu129`)으로 평가를 실행한 이력이 있습니다. 12 미만일 때만 3번(설치)에서 멈춥니다.
+- **WSL2에서는 GPU 드라이버가 Windows 것**입니다. Linux 안에서 드라이버를 설치하지 마세요. 긴 작업 중에는 ① GPU를 쓰는 Windows 앱(브라우저, 영상, 게임)을 닫고 ② Windows 절전과 자동 재시작을 끄고 ③ tmux를 붙여 둔 터미널 창을 닫지 마세요.
 - Llama 모델은 승인이 필요합니다: 브라우저에서 https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct 에 로그인해 **라이선스에 동의**하고, https://huggingface.co/settings/tokens 에서 **Read 토큰**을 만들어 두세요.
 
 ## 1. 코드 받기
@@ -37,9 +40,20 @@ echo 'HF_TOKEN=hf_여기에_토큰' > .env
 
 ## 3. 환경 설치 (10~30분)
 
+**방법 A (권장, 이 PC): 이미 검증된 conda 환경 `mmdl`을 복제해서 쓰기.** 이 환경은 2026-10-14와 10-20 평가에서 `torch 2.13.0+cu129`와 `vllm 0.27.1+cu129`로 실제로 돌았습니다 (Python 3.12, nvcc 12.9 포함).
+```bash
+conda env list                                  # mmdl이 보이면
+conda create --clone mmdl -n mmdl_lab           # 원본은 건드리지 않고 복제
+export CONDA_ENV=mmdl_lab                       # 이후 setup과 모든 파이프라인 명령이 이 환경을 씁니다 (tmux 안에서도 export)
+bash lab/setup_env.sh                           # torch/vLLM은 이미 맞으면 건너뛰고 trl, peft 등만 설치
+```
+`mmdl`이 없거나 버전이 다르면 방법 B로 가세요.
+
+**방법 B: 새 가상환경.**
 ```bash
 bash lab/setup_env.sh
 ```
+설치 경로(cu129/cu130)는 드라이버의 CUDA에 따라 자동으로 고릅니다. 먼저 `DRY_RUN=1 bash lab/setup_env.sh`로 어떤 경로를 고르는지만 확인할 수 있습니다.
 - `.venv_lab` 가상환경을 만들고 torch 2.13.0(cu129) + vLLM 0.27.1 + trl 1.16.0 등을 설치한 뒤, 마지막에 **환경 점검**을 자동 실행합니다.
 - 마지막 줄이 `결과: FAIL 0개 -> 환경은 정상으로 보입니다`이면 성공입니다.
 - `requirements_lab.lock.txt`가 생깁니다 (보고서의 패키지 버전 기록).

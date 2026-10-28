@@ -75,11 +75,17 @@ def show_log_errors(log_path, tail=60):
     print("\n".join(lines[-tail:]))
 
 
+def server_env():
+    """vLLM 서버 환경변수. FlashInfer 샘플러는 실행 중 컴파일(nvcc)이 필요해서 기본으로 끈다
+    (이 PC의 2026-10-20 pilot20 평가도 VLLM_USE_FLASHINFER_SAMPLER=0으로 실행했다). 이미 설정돼 있으면 그 값을 쓴다."""
+    return {**os.environ, "VLLM_USE_V2_MODEL_RUNNER": "0",
+            "VLLM_USE_FLASHINFER_SAMPLER": os.environ.get("VLLM_USE_FLASHINFER_SAMPLER", "0")}
+
+
 def start_server(cmd, port, log_path):
     kill_leftover_servers()
     log = open(log_path, "w")
-    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-                            env={**os.environ, "VLLM_USE_V2_MODEL_RUNNER": "0"})
+    proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=server_env())
     for _ in range(720):  # 최대 60분 (첫 실행은 모델 다운로드 포함)
         try:
             if requests.get(f"http://localhost:{port}/v1/models", timeout=5).ok:
@@ -186,7 +192,8 @@ def main():
 
     gpu = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader"],
                          capture_output=True, text=True).stdout.strip()
-    snapshot(out_root, extra={"model": args.model, "revision": args.revision, "preset": args.preset})
+    snapshot(out_root, extra={"model": args.model, "revision": args.revision, "preset": args.preset,
+                              "vllm_use_flashinfer_sampler": server_env()["VLLM_USE_FLASHINFER_SAMPLER"]})
     print(f"GPU: {gpu}\n모델: {args.model} {args.revision or ''}")
 
     # ---------- A) Qwen 서버 1회, 모든 run 추론 ----------

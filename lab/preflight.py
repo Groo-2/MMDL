@@ -50,14 +50,17 @@ def parse_gpu_memory(csv_text):
     return free / 1024, total / 1024
 
 
-def check_gpu_free(csv_text, need_gb):
+def check_gpu_free(csv_text, need_gb=None, frac=None):
+    """need_gb(고정 GB) 또는 frac(전체 메모리의 비율, vLLM --gpu-memory-utilization)만큼 비어 있어야 한다."""
     try:
         free, total = parse_gpu_memory(csv_text)
     except Exception:  # noqa: BLE001
         return FAIL, "GPU 메모리를 읽지 못했다 (nvidia-smi 출력 형식 오류)"
-    if free < need_gb:
-        return FAIL, f"GPU 여유 메모리 {free:.1f}GB < 필요 {need_gb}GB (전체 {total:.1f}GB). 다른 프로세스가 GPU를 쓰고 있다"
-    return OK, f"GPU 여유 메모리 {free:.1f}GB / {total:.1f}GB (필요 {need_gb}GB)"
+    need = need_gb if need_gb is not None else frac * total
+    if free < need:
+        return FAIL, (f"GPU 여유 메모리 {free:.1f}GB < 필요 {need:.1f}GB (전체 {total:.1f}GB). 다른 프로세스가 GPU를 쓰고 있다. "
+                      "WSL이면 Windows 앱(브라우저, 영상, 게임)이 VRAM을 쓰고 있을 수 있으니 닫으세요")
+    return OK, f"GPU 여유 메모리 {free:.1f}GB / {total:.1f}GB (필요 {need:.1f}GB)"
 
 
 def check_files(paths):
@@ -100,7 +103,12 @@ def stage_checks(stage, offline=False, data_dir=None):
         pass
     res = []
     if stage in ("eval", "screen", "train", "holdout"):
-        res.append(check_gpu_free(nvsmi, 20) if nvsmi.strip() else (FAIL, "nvidia-smi를 실행할 수 없다 (GPU/드라이버 없음)"))
+        if not nvsmi.strip():
+            res.append((FAIL, "nvidia-smi를 실행할 수 없다 (GPU/드라이버 없음)"))
+        elif stage == "train":
+            res.append(check_gpu_free(nvsmi, need_gb=20))
+        else:
+            res.append(check_gpu_free(nvsmi, frac=0.90))      # vLLM --gpu-memory-utilization 0.90이 시작할 때 요구하는 양
     if stage in ("eval", "screen", "holdout"):
         res.append(check_port_free(8000))
     if stage == "eval":

@@ -39,8 +39,13 @@ class TriageLogic(unittest.TestCase):
     def test_driver_vs_torch(self):
         self.assertEqual(T.driver_vs_torch((12, 9), "12.9")[0], T.OK)
         self.assertEqual(T.driver_vs_torch((13, 0), "12.9")[0], T.OK)
-        self.assertEqual(T.driver_vs_torch((12, 4), "12.9")[0], T.FAIL)   # 드라이버가 더 낮음
-        self.assertEqual(T.driver_vs_torch((12, 9), "13.0")[0], T.FAIL)
+        # 같은 12.x 안에서 드라이버가 더 낮으면(예: 이 실습실의 12.6 + cu129) 마이너 버전 호환으로 실행되므로 경고
+        level, msg = T.driver_vs_torch((12, 6), "12.9")
+        self.assertEqual(level, T.WARN)
+        self.assertIn("마이너 버전 호환", msg)
+        self.assertEqual(T.driver_vs_torch((12, 4), "12.9")[0], T.WARN)
+        self.assertEqual(T.driver_vs_torch((12, 9), "13.0")[0], T.FAIL)    # 메이저가 다르면 실패
+        self.assertEqual(T.driver_vs_torch((11, 8), "12.9")[0], T.FAIL)
         self.assertEqual(T.driver_vs_torch(None, "12.9")[0], T.FAIL)
         self.assertEqual(T.driver_vs_torch((12, 9), None)[0], T.FAIL)       # CPU 빌드 torch
 
@@ -109,6 +114,33 @@ class PreflightLogic(unittest.TestCase):
         self.assertEqual(P.check_gpu_free("23500, 24564", 20)[0], P.OK)
         self.assertEqual(P.check_gpu_free("9000, 24564", 20)[0], P.FAIL)   # 다른 프로세스가 GPU를 쓰는 중
         self.assertEqual(P.check_gpu_free("garbage", 20)[0], P.FAIL)
+
+    def test_gpu_free_for_vllm_uses_utilization_fraction(self):
+        # 실습실 로그: 시작 시 여유 22.46GiB, vLLM 0.90이 요구한 21.59GiB(=23.99 x 0.9). 여유가 이보다 적으면 서버가 안 뜬다
+        total = "24564"
+        self.assertEqual(P.check_gpu_free(f"{int(22.46 * 1024)}, {total}", frac=0.90)[0], P.OK)
+        level, msg = P.check_gpu_free(f"{int(21.0 * 1024)}, {total}", frac=0.90)      # 20GB 기준이면 통과했을 값
+        self.assertEqual(level, P.FAIL)
+        self.assertIn("Windows", msg)
+        self.assertEqual(P.check_gpu_free(f"{int(21.0 * 1024)}, {total}", need_gb=20)[0], P.OK)
+
+    def test_each_stage_uses_its_own_gpu_threshold(self):
+        # 실제 단계(stage_checks)가 vLLM 단계에는 0.90 x 전체, 학습 단계에는 20GB를 쓰는지 가짜 nvidia-smi로 확인
+        d = Path(tempfile.mkdtemp())
+        smi = d / "nvidia-smi"
+        smi.write_text(f'#!/bin/bash\necho "{int(21.0 * 1024)}, 24564"\n')     # 여유 21.0GiB: 20GB는 넘고 21.59GB(vLLM)는 못 넘음
+        smi.chmod(0o755)
+        old = os.environ["PATH"]
+        os.environ["PATH"] = f"{d}:{old}"
+        try:
+            def gpu(stage):
+                return next(r for r in P.stage_checks(stage, offline=True, data_dir=d) if "GPU 여유" in r[1])
+
+            for stage in ("eval", "screen", "holdout"):
+                self.assertEqual(gpu(stage)[0], P.FAIL, stage)
+            self.assertEqual(gpu("train")[0], P.OK)
+        finally:
+            os.environ["PATH"] = old
 
     def test_files_and_token(self):
         with tempfile.TemporaryDirectory() as d:
@@ -406,6 +438,67 @@ class SummarizeSubject(unittest.TestCase):
             s = S.summarize(d, subject="Music")
             self.assertAlmostEqual(s["overall_acc_mean_std"][0], 0.375)     # (1/4 + 2/4) / 2, Art는 제외
             self.assertAlmostEqual(S.summarize(d)["overall_acc_mean_std"][0], (0.625 + 0.75) / 2)
+
+
+class SetupPlan(unittest.TestCase):
+    """가짜 nvidia-smi로 드라이버 CUDA별 설치 경로 선택을 확인한다 (설치는 하지 않는다: DRY_RUN=1)."""
+
+    def run_setup(self, cuda, with_smi=True):
+        d = Path(tempfile.mkdtemp())
+        if with_smi:
+            smi = d / "nvidia-smi"
+            smi.write_text('#!/bin/bash\nif [[ "$*" == *--query-gpu* ]]; then echo "NVIDIA GeForce RTX 4090, 24564 MiB"; '
+                           'else echo "| NVIDIA-SMI 560.35.02   Driver Version: 560.94   CUDA Version: $FAKE_CUDA |"; fi\n')
+            smi.chmod(0o755)
+        env = {"PATH": f"{d}:/usr/bin:/bin", "DRY_RUN": "1", "FAKE_CUDA": cuda, "HOME": str(d)}
+        return subprocess.run(["bash", str(REPO / "lab" / "setup_env.sh")], capture_output=True, text=True, env=env, cwd=REPO)
+
+    def test_driver_12_6_uses_cu129_with_minor_compat_note(self):
+        out = self.run_setup("12.6")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("설치 경로: cu129", out.stdout)
+        self.assertIn("마이너 버전 호환", out.stdout)
+
+    def test_driver_12_9_uses_cu129_without_note(self):
+        out = self.run_setup("12.9")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("설치 경로: cu129", out.stdout)
+        self.assertNotIn("마이너 버전 호환", out.stdout)
+
+    def test_driver_13_uses_default_wheel(self):
+        out = self.run_setup("13.0")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("설치 경로: cu130", out.stdout)
+
+    def test_driver_below_12_is_rejected(self):
+        out = self.run_setup("11.8")
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("지원하지 않는다", out.stdout + out.stderr)
+
+    def test_missing_nvidia_smi(self):
+        import shutil
+
+        if shutil.which("nvidia-smi", path="/usr/bin:/bin"):
+            self.skipTest("이 PC는 /usr/bin에 nvidia-smi가 있다")
+        out = self.run_setup("12.6", with_smi=False)
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("nvidia-smi가 없다", out.stdout + out.stderr)
+
+
+class ServerEnv(unittest.TestCase):
+    def test_flashinfer_sampler_off_by_default_but_overridable(self):
+        import eval_repeat as E
+
+        old = os.environ.pop("VLLM_USE_FLASHINFER_SAMPLER", None)
+        try:
+            self.assertEqual(E.server_env()["VLLM_USE_FLASHINFER_SAMPLER"], "0")
+            self.assertEqual(E.server_env()["VLLM_USE_V2_MODEL_RUNNER"], "0")
+            os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "1"
+            self.assertEqual(E.server_env()["VLLM_USE_FLASHINFER_SAMPLER"], "1")
+        finally:
+            os.environ.pop("VLLM_USE_FLASHINFER_SAMPLER", None)
+            if old is not None:
+                os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = old
 
 
 if __name__ == "__main__":
