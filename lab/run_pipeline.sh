@@ -25,13 +25,12 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 DRY_RUN="${DRY_RUN:-0}"
 if [[ "$DRY_RUN" != "1" ]]; then
+  # shellcheck disable=SC1091
+  source lab/activate_env.sh
   if [[ -n "${CONDA_ENV:-}" ]]; then
-    # shellcheck disable=SC1091
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate "$CONDA_ENV"
+    lab_activate_conda "$CONDA_ENV"
   else
-    # shellcheck disable=SC1091
-    source "${VENV:-.venv_lab}/bin/activate"
+    lab_activate_venv "${VENV:-.venv_lab}"
   fi
 fi
 

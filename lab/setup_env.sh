@@ -55,13 +55,14 @@ fi
 
 if [[ -n "$CONDA_ENV" ]]; then
   # shellcheck disable=SC1091
-  source "$(conda info --base)/etc/profile.d/conda.sh"
-  conda activate "$CONDA_ENV"
+  source lab/activate_env.sh
+  lab_activate_conda "$CONDA_ENV"
   echo ">>> conda 환경 사용: $CONDA_ENV ($(python --version 2>&1))"
 else
   "$PYTHON" -m venv "$VENV"
   # shellcheck disable=SC1091
-  source "$VENV/bin/activate"
+  source lab/activate_env.sh
+  lab_activate_venv "$VENV"
   pip install -q --upgrade pip
 fi
 
