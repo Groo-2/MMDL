@@ -73,7 +73,7 @@ CONFIRM_EXTEND_TO_8=yes bash lab/run_pipeline.sh music_extend_base music_extend_
 ```bash
 python lab/env_triage.py     # logs/env_triage_<시각>.txt 저장
 ```
-점검 항목: ① 드라이버 CUDA가 torch CUDA 이상인지 (같은 12.x에서 낮으면 마이너 버전 호환이라 경고만) ② `nvidia-*-cu12`와 `-cu13` wheel 혼재(Colab에서 `CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`의 원인) ③ torch/vllm/trl/transformers 버전이 기대값(torch 2.13.0, vllm 0.27.1, trl 1.16.0, transformers ≥ 5.5.3)과 lock에 맞는지 ④ `pip check` ⑤ bf16 matmul, conv3d 스모크.
+점검 항목: ① 드라이버 CUDA가 torch CUDA 이상인지 (같은 12.x에서 낮으면 마이너 버전 호환이라 경고만) ② `nvidia-*-cu12`와 `-cu13` wheel 혼재 (**버전이 다르면 FAIL**: Colab에서 `CUDNN_STATUS_SUBLIBRARY_VERSION_MISMATCH`의 원인. **같은 버전이면 경고**: 이 실습실 mmdl 환경이 이 상태이고 conv3d 스모크가 통과함) ③ torch/vllm/trl/transformers 버전이 기대값(torch 2.13.0, vllm 0.27.1, trl 1.16.0, transformers ≥ 5.5.3)과 lock에 맞는지 ④ `pip check` ⑤ bf16 matmul, conv3d 스모크.
 
 FAIL이 없는데도 실패하면 그때 에러 로그 자체를 봅니다. 긴 작업 전에는 `python lab/preflight.py --stage eval|screen|train|holdout`이 디스크, GPU 점유, 포트, HF 토큰, 파일을 점검합니다 (파이프라인이 단계마다 먼저 실행).
 

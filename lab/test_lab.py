@@ -52,13 +52,23 @@ class TriageLogic(unittest.TestCase):
     def test_nvidia_wheel_mix_is_detected(self):
         # Colab 사고 재현: cu12와 cu13 cuDNN이 같이 설치
         installed = {"nvidia-cudnn-cu12": "9.27.0.42", "nvidia-cudnn-cu13": "9.20.0.48", "torch": "2.13.0+cu130"}
-        problems = T.find_nvidia_wheel_mix(installed, "13.0")
-        self.assertTrue(any("cudnn" in p and "cu12" in p and "cu13" in p for p in problems))
+        hard, soft = T.find_nvidia_wheel_mix(installed, "13.0")
+        self.assertTrue(any("cudnn" in p and "cu12" in p and "cu13" in p for p in hard))      # 버전이 다르면 FAIL 대상
+        self.assertEqual(soft, [])
+
+    def test_same_version_cu12_and_cu13_is_only_a_warning(self):
+        # 이 실습실 mmdl 환경: cu12와 cu13이 같은 버전(9.20.0.48)으로 함께 설치됨. conv3d 스모크는 통과했다
+        installed = {"nvidia-cudnn-cu12": "9.20.0.48", "nvidia-cudnn-cu13": "9.20.0.48", "nvidia-nccl-cu12": "2.29.7",
+                     "nvidia-nccl-cu13": "2.29.7", "torch": "2.13.0+cu129"}
+        hard, soft = T.find_nvidia_wheel_mix(installed, "12.9")
+        self.assertEqual(hard, [])
+        self.assertEqual(len(soft), 2)
+        self.assertTrue(all("같은 버전" in s for s in soft))
 
     def test_nvidia_wheel_clean_and_wrong_family(self):
-        self.assertEqual(T.find_nvidia_wheel_mix({"nvidia-cudnn-cu12": "9.1", "nvidia-cublas-cu12": "12.9"}, "12.9"), [])
-        wrong = T.find_nvidia_wheel_mix({"nvidia-cudnn-cu13": "9.20"}, "12.9")   # torch는 12.9인데 cu13 wheel만 있음
-        self.assertTrue(wrong and "cu12 빌드가 없고" in wrong[0])
+        self.assertEqual(T.find_nvidia_wheel_mix({"nvidia-cudnn-cu12": "9.1", "nvidia-cublas-cu12": "12.9"}, "12.9"), ([], []))
+        hard, _ = T.find_nvidia_wheel_mix({"nvidia-cudnn-cu13": "9.20"}, "12.9")   # torch는 12.9인데 cu13 wheel만 있음
+        self.assertTrue(hard and "cu12 빌드가 없고" in hard[0])
 
     def test_check_versions(self):
         good = {"torch": "2.13.0+cu129", "vllm": "0.27.1+cu129", "trl": "1.16.0", "transformers": "5.20.2"}
