@@ -115,8 +115,19 @@ run_stage() {
       ;;
     grpo)
       run python lab/preflight.py --stage train --data-dir "$DATA_DIR" || return $?
-      run python music_ft/train_grpo.py "${TRAIN_ARGS[@]}" --output-dir "results/$TAG_NEW" \
-        --max-steps "$STEPS" --save-steps 25 --resume
+      # 이틀짜리 작업이라 중간에 죽으면(OOM, 프로세스 종료 등) 마지막 체크포인트부터 다시 시작한다 (최대 GRPO_RETRIES번).
+      # 체크포인트가 잡아 둔 메모리를 비우려고 시도 사이에 30초 쉰다.
+      attempt=1
+      until run python music_ft/train_grpo.py "${TRAIN_ARGS[@]}" --output-dir "results/$TAG_NEW" \
+          --max-steps "$STEPS" --save-steps "${SAVE_STEPS:-10}" --resume; do
+        if (( attempt >= ${GRPO_RETRIES:-3} )); then
+          echo "GRPO가 ${attempt}번 연속 실패했다. 자동 재시도를 멈춘다 (체크포인트: results/$TAG_NEW/checkpoint-*)"
+          return 1
+        fi
+        echo "GRPO 실패 (${attempt}번째). 30초 뒤 마지막 체크포인트부터 다시 시작한다."
+        attempt=$((attempt + 1))
+        sleep 30
+      done
       ;;
     merge)
       run python music_ft/merge_lora.py --lora "results/$TAG_NEW/final_lora" --out "results/$TAG_NEW/merged"
