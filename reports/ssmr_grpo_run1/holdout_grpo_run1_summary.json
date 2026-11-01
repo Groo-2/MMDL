@@ -1,0 +1,16 @@
+{
+  "n": 400,
+  "accuracy": 0.4725,
+  "truncated": 5,
+  "accuracy_among_finished": 0.47848101265822784,
+  "finished": 395,
+  "by_category": {
+    "Beat": {"n": 103, "accuracy": 0.5533980582524272},
+    "Chord": {"n": 103, "accuracy": 0.3592233009708738},
+    "Interval": {"n": 103, "accuracy": 0.24271844660194175},
+    "Scale": {"n": 91, "accuracy": 0.7692307692307693}
+  },
+  "seed": 42,
+  "max_new_tokens": 8192,
+  "missing": 0
+}
