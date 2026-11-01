@@ -105,6 +105,7 @@ MMMU 전체 900문항(`full2`)은 **측정 중**이라 이 문서에 없다. 끝
 ## 파일
 
 - `HANDOFF_musixqa.md`: MusiXQA 추가 학습 인수인계 문서
+- 학습된 LoRA 어댑터(528MB): GitHub Release `ssmr-grpo-run1-lora` (https://github.com/Groo-2/MMDL/releases/tag/ssmr-grpo-run1-lora), SHA-256은 릴리스 설명과 `SHA256SUMS` 참고
 - `training_curve.txt`: 140스텝 전체 학습 지표
 - `holdout_baseline_summary.json`, `holdout_grpo_run1_summary.json`: SSMR hold-out 원본 요약
 - 코드: `music_ft/`(학습·선별·merge), `lab/`(실행 파이프라인, 평가, 환경 점검). 실행 방법은 `lab/RUNBOOK_실습실_명령어.md`

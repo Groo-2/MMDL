@@ -9,7 +9,7 @@ SSMR 단계의 결과와 설정은 [README.md](README.md)에 있다. 이 문서�
 | 항목 | 내용 |
 |---|---|
 | 모델 | `Qwen/Qwen3-VL-4B-Instruct` @ `ebb281ec70b05090aa6165b016eac8ec08e71b17` (bf16, 양자화 금지) |
-| 학습된 가중치 | LoRA 어댑터 `grpo_run1/final_lora`(r64/alpha128, LLM의 q,k,v,o,gate,up,down). **위치: (업로드 후 이 줄을 갱신)** |
+| 학습된 가중치 | LoRA 어댑터 `grpo_run1/final_lora`(r64/alpha128, LLM의 q,k,v,o,gate,up,down). **위치: GitHub Release [`ssmr-grpo-run1-lora`](https://github.com/Groo-2/MMDL/releases/tag/ssmr-grpo-run1-lora)** (`adapter_model.safetensors` 528,557,816바이트, `adapter_config.json`, `SHA256SUMS`). `gh release download ssmr-grpo-run1-lora --repo Groo-2/MMDL`로 받고 `shasum -a 256 -c SHA256SUMS`(Linux는 `sha256sum -c`)로 확인. `adapter_config.json`의 `revision`이 null이므로 base는 위 revision을 직접 지정하고, `inference_mode`가 true라서 이어서 학습하려면 `is_trainable=True`가 필요 |
 | 합친 모델 | 어댑터를 base에 merge한 전체 모델은 약 9GB라 저장소에 올리지 않는다. `python music_ft/merge_lora.py --lora <어댑터> --out <출력>`로 만든다(몇 분). 값이 바뀐 가중치가 252개 나와야 정상 |
 | 코드 | `ssmr` 브랜치의 `music_ft/`(학습·선별·merge), `lab/`(실행 파이프라인·평가·환경 점검) |
 | MusiXQA 요청서·검증기 | `musixqa` 브랜치의 `lab/MusiXQA_객관식_요청서.md`, `lab/validate_mcq_dataset.py` (**`ssmr` 브랜치에는 없다**) |
