@@ -4,6 +4,55 @@
 SSMR 단계의 결과와 설정은 [README.md](README.md)에 있다. 이 문서는 **이어서 할 때 알아야 할 것**만 적는다.
 확인된 사실과 추정을 구분해서 적었다. "미검증"이라고 쓴 것은 실제로 돌려 보지 않았다.
 
+## 0. 지금 해도 되는 일 / 기다릴 일 / 하지 말 일 (2026-11-02 기준)
+
+실습실 RTX 4090은 SSMR 모델의 MMMU 전체 900문항 평가(`full2`, 1~2일 예상)가 쓰는 중이다. 이 평가가 끝나기 전에는 실습실 GPU를 쓰는 작업을 할 수 없다.
+아래 구분은 그 상황을 전제로 한다. `full2`가 끝나면 이 절을 갱신한다.
+
+### A. 지금 해도 된다 (GPU 필요 없음)
+
+| 할 일 | 방법 | 끝났다는 기준 |
+|---|---|---|
+| 1. 어댑터 받고 무결성 확인 | 1절의 `gh release download`, `shasum -a 256 -c SHA256SUMS` | 두 파일 모두 `OK` |
+| 2. MusiXQA 객관식 데이터 만들기 | `musixqa` 브랜치의 `lab/MusiXQA_객관식_요청서.md`대로(4지선다, 카테고리, 오답 규칙, 분량, 문서당 최대 2문항) | train/holdout 분리, holdout 문서가 train에 없음 |
+| 3. 형식 검증 | `python lab/validate_mcq_dataset.py --data-dir <폴더>` (`musixqa` 브랜치) | ERROR 0개 |
+| 4. 눈으로 내용 확인 | 카테고리별 무작위 20개 이상: 정답이 맞는지, 보기가 모호하지 않은지, 이미지에서 답이 보이는지 | 문제 있는 문항을 고쳤다 |
+| 5. MMMU 중복 제거 | `python music_ft/dedupe.py ...`(SSMR에서는 겹침 0건이었다). MMMU validation/test와 겹치면 학습에서 뺀다 | 겹침 보고서 확인 |
+| 6. 이미지 토큰 수 측정 | 아래 코드. SSMR 이미지는 약 990토큰이었다 | MusiXQA 풀페이지의 토큰 수를 알았다 |
+| 7. 보고서 재료 정리 | 데이터 출처(MusiXQA, MIT), 만든 방법, 중복 제거 방법, 카테고리별 개수 | 위 항목이 문서에 있다 |
+
+이미지 토큰 수 측정(CPU, 학습 코드와 같은 방식):
+```python
+from transformers import AutoProcessor
+from PIL import Image
+p = AutoProcessor.from_pretrained("Qwen/Qwen3-VL-4B-Instruct", revision="ebb281ec70b05090aa6165b016eac8ec08e71b17")
+ip = p.image_processor
+ip.min_pixels, ip.max_pixels = 1003520, 4014080
+ip.size = {"shortest_edge": 1003520, "longest_edge": 4014080}
+out = ip(images=[Image.open("악보_예시.png").convert("RGB")], return_tensors="np")
+t, h, w = out["image_grid_thw"][0]
+print("이미지 토큰:", int(t * h * w) // (ip.merge_size ** 2))
+```
+이 값이 SSMR의 약 2배(약 2,000)라면 메모리를 다시 시험해야 한다(2절 5번).
+
+### B. 실습실 GPU가 비면 한다 (`full2` 종료 후)
+
+- 어댑터를 merge하고 SSMR hold-out에서 47.25% 근처가 나오는지 확인(로딩 검증)
+- `--stress`로 MusiXQA 최악 문항 1스텝 → 파일럿 2스텝(스텝 시간, `grad_norm`, 보상)
+- (선택) SSMR 모델로 통과율 선별
+
+### C. `full2` 결과를 보고 정한다 (본 학습 시작 전에)
+
+- **SSMR 모델 위에서 이어서 할지, base에서 새로 학습할지, 둘 다 할지.** 응답이 짧아진 SSMR 모델이 다른 과목 점수를 떨어뜨렸다면 그 위에서 시작하는 것이 불리할 수 있다.
+- 이어서 학습하는 코드(3절의 방법 A 또는 B) 구현. 구현은 팀 합의 후에 한다.
+
+### D. 하지 않는다
+
+- **실습실 PC에서 GPU를 쓰는 작업**(`full2`와 충돌해 둘 다 실패하거나 같은 결과 폴더를 덮어쓸 수 있다). `nvidia-smi`가 500MiB 안팎일 때만 시작한다.
+- **실습실의 `~/mmdl/MMDL_ssmr` 폴더에서 `git checkout`/`git pull`로 `lab/` 파일을 바꾸는 것.** 실행 중인 `run_pipeline.sh`는 bash가 실행 도중에 읽기 때문에 파일이 바뀌면 오동작할 수 있다. 작업은 다른 폴더에 새로 clone해서 한다.
+- 본 학습 시작(위 C를 정하기 전), 평가 조건(프롬프트, sampling, 해상도, judge) 변경, Music 4번을 8번으로 늘리기(팀 합의 필요).
+- `.env`나 HF 토큰, 100MB 넘는 파일을 git에 올리는 것(가중치는 GitHub Release를 쓴다).
+
 ## 1. 받는 것
 
 | 항목 | 내용 |
