@@ -73,7 +73,7 @@ def _start_mem_logger(period=30):
 class Heartbeat:
     """한 스텝이 끝나기 전에는 tqdm이 갱신되지 않으므로, micro-batch 진행을 주기적으로 출력한다."""
 
-    def __new__(cls):
+    def __new__(cls, empty_cache_every=0):
         import time
         from transformers import TrainerCallback
 
@@ -97,6 +97,13 @@ class Heartbeat:
 
             def on_substep_end(self, args, state, control, **kwargs):
                 self.micro += 1
+                if empty_cache_every and self.micro % empty_cache_every == 0:
+                    # 응답 길이가 들쑥날쑥하면 캐시가 부풀어 GPU 전체(24GB)를 넘기고(WSL2는 시스템 메모리로 넘침) 속도가 무너진다
+                    import gc
+                    import torch
+
+                    gc.collect()
+                    torch.cuda.empty_cache()
                 if self.micro % 8 == 0:
                     print(f"[heartbeat] step {state.global_step + 1}: micro-batch {self.micro}/{args.gradient_accumulation_steps}, "
                           f"스텝 경과 {time.time() - self.step_t0:.0f}s", flush=True)
@@ -259,6 +266,8 @@ def main():
     parser.add_argument("--vllm-mem", type=float, default=0.35, help="--rollout vllm일 때만")
     parser.add_argument("--save-steps", type=int, default=25)
     parser.add_argument("--save-total-limit", type=int, default=3, help="보관할 체크포인트 수 (E1은 3이라 120/130/140만 남았다)")
+    parser.add_argument("--empty-cache-every", type=int, default=0,
+                        help="N번 micro-batch마다 CUDA 캐시를 비운다 (0=끔, E1과 같음). 24GB에서 예약 메모리가 GPU 전체를 넘길 때 쓴다")
     parser.add_argument("--beta", type=float, default=0.0, help="KL 페널티 (0이면 E1과 같이 KL 없음. PEFT는 어댑터를 끈 모델이 기준)")
     parser.add_argument("--mask-truncated", action="store_true", help="잘린 응답을 손실에서 제외 (TRL mask_truncated_completions)")
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
@@ -346,7 +355,7 @@ def main():
         args=config,
         train_dataset=dataset,
         peft_config=peft_config,
-        callbacks=[Heartbeat()],
+        callbacks=[Heartbeat(args.empty_cache_every)],
     )
 
     # --resume: 체크포인트가 있으면 이어서, 없으면 처음부터 (HF는 True를 주고 체크포인트가 없으면 에러를 낸다)
