@@ -94,12 +94,13 @@ run_stage() {
     stress)
       run python lab/preflight.py --stage train --data-dir "$DATA_DIR" || return $?
       run rm -rf results/grpo_stress
-      run python music_ft/train_grpo.py "${TRAIN_ARGS[@]}" --output-dir results/grpo_stress --max-steps 1 --stress
+      run python music_ft/train_grpo.py "${TRAIN_ARGS[@]}" --output-dir results/grpo_stress --max-steps 1 --stress ${GRPO_EXTRA:-}
       ;;
     pilot)
       run python lab/preflight.py --stage train --data-dir "$DATA_DIR" || return $?
-      run python music_ft/train_grpo.py "${TRAIN_ARGS[@]}" --output-dir results/grpo_pilot \
-        --max-steps 2 --save-steps 2 --resume
+      # 설정마다 따로 쓴다(--resume이 이전 파일럿의 체크포인트를 이어받아 아무것도 안 하는 것을 막는다)
+      run python music_ft/train_grpo.py "${TRAIN_ARGS[@]}" --output-dir "results/grpo_pilot_$TAG_NEW" \
+        --max-steps 2 --save-steps 2 --resume ${GRPO_EXTRA:-}
       ;;
     baseline_music4)
       run python lab/preflight.py --stage eval || return $?
@@ -115,11 +116,16 @@ run_stage() {
       ;;
     grpo)
       run python lab/preflight.py --stage train --data-dir "$DATA_DIR" || return $?
+      # 이미 끝난 학습 폴더에 덮어쓰거나 이어받지 않는다 (TAG_NEW를 바꾸지 않고 다시 실행하는 실수 방지)
+      if [[ -f "results/$TAG_NEW/final_lora/adapter_model.safetensors" ]]; then
+        echo "results/$TAG_NEW 는 이미 학습이 끝났다(final_lora 있음). 새 실험이면 TAG_NEW를 바꾸세요. 예: TAG_NEW=grpo_run2"
+        return 1
+      fi
       # 이틀짜리 작업이라 중간에 죽으면(OOM, 프로세스 종료 등) 마지막 체크포인트부터 다시 시작한다 (최대 GRPO_RETRIES번).
       # 체크포인트가 잡아 둔 메모리를 비우려고 시도 사이에 30초 쉰다.
       attempt=1
       until run python music_ft/train_grpo.py "${TRAIN_ARGS[@]}" --output-dir "results/$TAG_NEW" \
-          --max-steps "$STEPS" --save-steps "${SAVE_STEPS:-10}" --resume; do
+          --max-steps "$STEPS" --save-steps "${SAVE_STEPS:-10}" --resume ${GRPO_EXTRA:-}; do
         if (( attempt >= ${GRPO_RETRIES:-3} )); then
           echo "GRPO가 ${attempt}번 연속 실패했다. 자동 재시도를 멈춘다 (체크포인트: results/$TAG_NEW/checkpoint-*)"
           return 1

@@ -519,5 +519,79 @@ class ServerEnv(unittest.TestCase):
                 os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = old
 
 
+
+class GrpoConfigOptions(unittest.TestCase):
+    """E1' 옵션(--beta, --mask-truncated, --save-total-limit)이 GRPOConfig로 제대로 전달되는지. trl은 가짜 모듈로 대신한다."""
+
+    @staticmethod
+    def _config(**extra):
+        import argparse
+        import types
+
+        captured = {}
+
+        class FakeConfig:
+            def __init__(self, **kw):
+                captured.update(kw)
+
+        fake = types.ModuleType("trl")
+        fake.GRPOConfig = FakeConfig
+        old = sys.modules.get("trl")
+        sys.modules["trl"] = fake
+        try:
+            from train_grpo import build_grpo_config
+
+            args = argparse.Namespace(prompts_per_step=8, micro_batch=1, learning_rate=2e-5, max_steps=60,
+                                      max_completion_length=4096, rollout="hf", save_steps=10, vllm_mem=0.35,
+                                      beta=0.0, mask_truncated=False, save_total_limit=3)
+            for k, v in extra.items():
+                setattr(args, k, v)
+            build_grpo_config(args, "out")
+        finally:
+            if old is None:
+                sys.modules.pop("trl", None)
+            else:
+                sys.modules["trl"] = old
+        return captured
+
+    def test_defaults_reproduce_e1(self):
+        c = self._config()
+        self.assertEqual(c["beta"], 0.0)
+        self.assertEqual(c["save_total_limit"], 3)
+        self.assertNotIn("mask_truncated_completions", c)      # 기본 실행은 E1과 같은 설정(옵션을 아예 넘기지 않는다)
+        self.assertEqual(c["max_completion_length"], 4096)
+
+    def test_e1_prime_options_are_passed(self):
+        c = self._config(beta=0.04, mask_truncated=True, save_total_limit=10)
+        self.assertEqual(c["beta"], 0.04)
+        self.assertEqual(c["save_total_limit"], 10)
+        self.assertIs(c["mask_truncated_completions"], True)
+
+    def test_pipeline_forwards_extra_and_refuses_finished_run(self):
+        env = dict(os.environ, DRY_RUN="1", GRPO_EXTRA="--beta 0.04 --mask-truncated", TAG_NEW="grpo_run2_test",
+                   STEPS="60", SAVE_STEPS="10")
+        out = subprocess.run(["bash", str(REPO / "lab" / "run_pipeline.sh"), "grpo"], env=env, cwd=REPO,
+                             capture_output=True, text=True).stdout
+        line = [l for l in out.splitlines() if "train_grpo.py" in l][0]
+        self.assertIn("--beta 0.04 --mask-truncated", line)
+        self.assertIn("results/grpo_run2_test", line)
+        pilot = subprocess.run(["bash", str(REPO / "lab" / "run_pipeline.sh"), "pilot"], env=env, cwd=REPO,
+                               capture_output=True, text=True).stdout
+        self.assertIn("results/grpo_pilot_grpo_run2_test", pilot)          # 파일럿은 설정마다 따로
+        done = REPO / "results" / "grpo_done_unittest" / "final_lora"       # results/는 .gitignore 대상
+        done.mkdir(parents=True, exist_ok=True)
+        try:
+            (done / "adapter_model.safetensors").write_bytes(b"x")
+            res = subprocess.run(["bash", str(REPO / "lab" / "run_pipeline.sh"), "grpo"], cwd=REPO, capture_output=True,
+                                 text=True, env=dict(env, TAG_NEW="grpo_done_unittest"))
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("이미 학습이 끝났다", res.stdout)
+            self.assertNotIn("train_grpo.py", "\n".join(l for l in res.stdout.splitlines() if l.startswith("+ python music_ft")))
+        finally:
+            import shutil
+
+            shutil.rmtree(REPO / "results" / "grpo_done_unittest", ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

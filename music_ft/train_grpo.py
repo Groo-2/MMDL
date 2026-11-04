@@ -5,6 +5,7 @@ vLLM 사본(약 9GB)을 동시에 올릴 수 없어서(KV cache가 1GB 안팎만
 메모리가 안정적이다. A100 40GB 이상이면 --rollout vllm (colocate)도 쓸 수 있다.
 
 SSMR-Bench 논문(§3.1)의 설정을 따른다: rollout 8, KL 없음(beta=0), 정답 보상만.
+(E1' 실험용 옵션: --beta, --mask-truncated, --save-total-limit. 기본값은 E1(grpo_run1)과 같다.)
 논문과 다른 점은 README/계획서 참고 (동결 프롬프트, rule 파서 보상, LoRA, 작은 스텝당 문항 수).
 
 프롬프트는 mmmu_eval/prompting.py의 build_mmmu_pro_cot_text()를 그대로 쓴다. 평가와 같은 문구이고,
@@ -197,7 +198,7 @@ def build_grpo_config(args, output_dir, **overrides):
         gradient_checkpointing=True,
         # 논문: rollout 8, KL 없음, 정답 보상만
         num_generations=NUM_GENERATIONS,
-        beta=0.0,
+        beta=args.beta,
         loss_type="grpo",
         # 동결 평가 sampling 중 HF generate가 지원하는 것 (temperature, top_p, top_k)
         temperature=TEMPERATURE,
@@ -208,7 +209,7 @@ def build_grpo_config(args, output_dir, **overrides):
         logging_steps=1,
         save_strategy="steps",
         save_steps=args.save_steps,
-        save_total_limit=3,
+        save_total_limit=args.save_total_limit,
         log_completions=False,
         report_to="none",
     )
@@ -233,6 +234,11 @@ def build_grpo_config(args, output_dir, **overrides):
             vllm_importance_sampling_correction=False,
         )
 
+    if args.mask_truncated:
+        # 잘린(max_completion_length에서 끊긴) 응답을 보상 0으로 벌주지 않고 손실에서 제외한다. 2,048토큰에서 잘리면 0점이던 E1에서
+        # '짧게 끝내기'가 가장 빨리 보상받는 행동이 되어 풀이가 짧은 틀로 굳었다는 가설(시험 전)에 대한 대응.
+        kwargs["mask_truncated_completions"] = True
+
     kwargs.update(overrides)
     return GRPOConfig(**kwargs)
 
@@ -252,6 +258,9 @@ def main():
     parser.add_argument("--lora-alpha", type=int, default=128)
     parser.add_argument("--vllm-mem", type=float, default=0.35, help="--rollout vllm일 때만")
     parser.add_argument("--save-steps", type=int, default=25)
+    parser.add_argument("--save-total-limit", type=int, default=3, help="보관할 체크포인트 수 (E1은 3이라 120/130/140만 남았다)")
+    parser.add_argument("--beta", type=float, default=0.0, help="KL 페널티 (0이면 E1과 같이 KL 없음. PEFT는 어댑터를 끈 모델이 기준)")
+    parser.add_argument("--mask-truncated", action="store_true", help="잘린 응답을 손실에서 제외 (TRL mask_truncated_completions)")
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
     parser.add_argument("--max-images", type=int, default=None,
                         help="이미지가 N장을 넘는 문항은 학습·stress에서 제외한다 (해상도는 그대로. 24GB 메모리용)")
