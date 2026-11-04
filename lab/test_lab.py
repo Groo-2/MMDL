@@ -488,6 +488,21 @@ class SetupPlan(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("설치 경로: cu130", out.stdout)
 
+    def test_force_plan_cu129_on_driver_13_for_colab(self):
+        d = Path(tempfile.mkdtemp())
+        smi = d / "nvidia-smi"
+        smi.write_text('#!/bin/bash\nif [[ "$*" == *--query-gpu* ]]; then echo "NVIDIA A100-SXM4-40GB, 40960 MiB"; '
+                       'else echo "| NVIDIA-SMI 580.82   Driver Version: 580.82   CUDA Version: 13.0 |"; fi\n')
+        smi.chmod(0o755)
+        env = {"PATH": f"{d}:/usr/bin:/bin", "DRY_RUN": "1", "HOME": str(d), "FORCE_PLAN": "cu129"}
+        out = subprocess.run(["bash", str(REPO / "lab" / "setup_env.sh")], capture_output=True, text=True, env=env, cwd=REPO)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("설치 경로: cu129", out.stdout)
+        self.assertNotIn("마이너 버전 호환", out.stdout)            # 드라이버가 13이라 12.x 마이너 안내가 나오면 안 된다
+        env["FORCE_PLAN"] = "cu128"
+        bad = subprocess.run(["bash", str(REPO / "lab" / "setup_env.sh")], capture_output=True, text=True, env=env, cwd=REPO)
+        self.assertEqual(bad.returncode, 2)
+
     def test_driver_below_12_is_rejected(self):
         out = self.run_setup("11.8")
         self.assertEqual(out.returncode, 2)

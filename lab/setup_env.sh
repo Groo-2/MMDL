@@ -14,6 +14,9 @@
 # 이미 검증된 conda 환경을 복제해서 쓰려면 (이 PC의 mmdl 환경: torch 2.13.0+cu129, vllm 0.27.1+cu129):
 #   conda create --clone mmdl -n mmdl_lab
 #   CONDA_ENV=mmdl_lab bash lab/setup_env.sh      # torch/vLLM이 이미 맞으면 다시 설치하지 않고 trl, peft 등만 설치
+# Colab 등 드라이버가 CUDA 13인 곳에서 실습실과 같은 cu129 환경을 만들려면:
+#   FORCE_PLAN=cu129 bash lab/setup_env.sh        # 드라이버 판단 대신 지정한 경로(cu129 또는 cu130)를 쓴다
+#   LOCK_FILE=requirements_lab.lock.txt ...       # 실습실의 pip freeze를 버전 제약으로 추가한다 (name==version 줄만 사용)
 # DRY_RUN=1 이면 어떤 경로를 고르는지만 출력하고 끝낸다.
 set -euo pipefail
 
@@ -44,7 +47,16 @@ else
   exit 2
 fi
 
-if [[ "$PLAN" == "cu129" && "$CUDA_MINOR" -lt 9 ]]; then
+if [[ -n "${FORCE_PLAN:-}" ]]; then
+  case "$FORCE_PLAN" in
+    cu129|cu130) ;;
+    *) echo "FORCE_PLAN은 cu129 또는 cu130이어야 한다 (받은 값: ${FORCE_PLAN})." >&2; exit 2 ;;
+  esac
+  echo ">>> FORCE_PLAN=${FORCE_PLAN}: 드라이버 기준 판단(${PLAN}) 대신 지정한 경로를 쓴다"
+  PLAN="$FORCE_PLAN"
+fi
+
+if [[ "$PLAN" == "cu129" && "$CUDA_MAJOR" -eq 12 && "$CUDA_MINOR" -lt 9 ]]; then
   echo ">>> 드라이버 CUDA ${CUDA_VER} < 12.9: CUDA 마이너 버전 호환으로 cu129 wheel을 쓴다."
   echo "    (이 PC에서 드라이버 560.94로 vllm 0.27.1+cu129 평가를 실행한 이력이 있다. 문제가 생기면 코드보다 먼저 'python lab/env_triage.py'를 실행하세요.)"
 fi
@@ -72,6 +84,16 @@ if sys.version_info < (3, 11):
     sys.exit(f"Python 3.11 이상이 필요하다 (TRL 1.16). 현재 {sys.version.split()[0]}. PYTHON=python3.12 또는 다른 conda 환경을 지정하세요.")
 PY
 
+# pip 버전 제약: 저장소의 lab_pins.txt + (선택) LOCK_FILE의 name==version 줄. URL/editable 줄은 제약에 쓸 수 없어서 거른다.
+CONSTRAINTS="$(mktemp)"
+grep -E '^[A-Za-z0-9_.-]+==' lab/lab_pins.txt > "$CONSTRAINTS" || true
+if [[ -n "${LOCK_FILE:-}" ]]; then
+  if [[ ! -f "$LOCK_FILE" ]]; then echo "LOCK_FILE을 찾을 수 없다: $LOCK_FILE" >&2; exit 2; fi
+  # 이미 lab_pins.txt에 있는 패키지는 pins가 우선하도록 lock에서는 제외한다
+  grep -E '^[A-Za-z0-9_.-]+==' "$LOCK_FILE" | grep -v -i -E '^(torch|torchvision|torchaudio|vllm)==' >> "$CONSTRAINTS" || true
+  echo ">>> LOCK_FILE ${LOCK_FILE}의 버전을 제약으로 추가한다 ($(wc -l < "$CONSTRAINTS")줄)"
+fi
+
 stack_ok() {
   python - <<'PY'
 import importlib.metadata as md, sys
@@ -87,7 +109,7 @@ if stack_ok; then
   echo ">>> torch 2.13.0과 vLLM 0.27.1이 이미 설치되어 있어 다시 설치하지 않는다"
 elif [[ "$PLAN" == "cu130" ]]; then
   echo ">>> CUDA 13 경로: PyPI 기본 wheel"
-  pip install "vllm==${VLLM_VERSION}"
+  pip install -c "$CONSTRAINTS" "vllm==${VLLM_VERSION}"
 else
   echo ">>> CUDA 12 경로: cu129 빌드"
   # vllm wheel이 요구하는 torch==2.13.0 / torchvision==0.28.0 / torchaudio==2.11.0 을 CUDA 12.9 빌드로 먼저 깐다.
@@ -95,24 +117,24 @@ else
   pip install "torch==2.13.0" "torchvision==0.28.0" "torchaudio==2.11.0" \
       --index-url https://download.pytorch.org/whl/cu129
   pip install "https://github.com/vllm-project/vllm/releases/download/v${VLLM_VERSION}/vllm-${VLLM_VERSION}+cu129-cp38-abi3-manylinux_2_28_x86_64.whl" \
-      --extra-index-url https://download.pytorch.org/whl/cu129
+      --extra-index-url https://download.pytorch.org/whl/cu129 -c "$CONSTRAINTS"
 fi
 
 # 학습(GRPO) + 데이터 변환 + 평가 보조
-pip install "trl==1.16.0" peft "datasets>=4.7.0" huggingface_hub Pillow pyarrow pandas requests numpy
+pip install -c "$CONSTRAINTS" "trl==1.16.0" peft "datasets>=4.7.0" huggingface_hub Pillow pyarrow pandas requests numpy
 
 # Colab에서 PEFT와 충돌했던 낡은 torchao가 깔려 있으면 제거 (우리는 쓰지 않는다)
 pip uninstall -y -q torchao 2>/dev/null || true
 
 # vLLM/trl 설치가 torch를 다른 CUDA 빌드로 바꾸지 않았는지 확인한다 (바뀌었다면 드라이버와 맞지 않을 수 있다)
-python - "$CUDA_MAJOR" "$CUDA_MINOR" <<'PY'
+python - "$PLAN" <<'PY'
 import sys, torch
-major, minor = int(sys.argv[1]), int(sys.argv[2])
+plan = sys.argv[1]
 cuda = torch.version.cuda or "없음"
 print(f"설치된 torch {torch.__version__} (CUDA {cuda})")
-if major == 12 and not cuda.startswith("12."):
+if plan == "cu129" and not cuda.startswith("12."):
     sys.exit(f"torch가 CUDA {cuda} 빌드로 설치됐다 (기대 12.9). vLLM 설치가 torch를 바꿨을 수 있다. torch를 cu129 index에서 다시 설치하세요.")
-if major >= 13 and not cuda.startswith("13"):
+if plan == "cu130" and not cuda.startswith("13"):
     sys.exit(f"torch가 CUDA {cuda} 빌드로 설치됐다 (기대 13.x).")
 PY
 

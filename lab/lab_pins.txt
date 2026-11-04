@@ -1,0 +1,9 @@
+# 실습실(RTX 4090, mmdl 환경)에서 학습·평가가 검증된 패키지 버전. setup_env.sh가 pip 제약(-c)으로 쓴다.
+# 새 PC나 Colab에서 같은 환경을 만들 때 transformers 등이 최신으로 올라가 결과가 달라지는 것을 막는다.
+# 출처: 실습실 env_triage 출력(2026-11-01). 전체 목록은 실습실의 requirements_lab.lock.txt(LOCK_FILE로 추가 지정 가능).
+transformers==5.19.0
+trl==1.16.0
+peft==0.21.2
+accelerate==1.15.0
+datasets==5.1.0
+numpy==2.3.5
