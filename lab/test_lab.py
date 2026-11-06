@@ -535,6 +535,40 @@ class ServerEnv(unittest.TestCase):
 
 
 
+class MissingImageTag(unittest.TestCase):
+    """질문에 '<image 1> '이 없으면 이미지가 조용히 빠진다. 학습/선별/평가 코드는 이를 오류로 알려야 한다."""
+
+    @staticmethod
+    def _data(question):
+        from PIL import Image
+
+        d = Path(tempfile.mkdtemp())
+        (d / "images").mkdir()
+        Image.new("RGB", (64, 32), "white").save(d / "images" / "a.png")
+        row = {"id": "x_1", "question": question, "options": ["a", "b", "c", "d"], "question_type": "multiple-choice",
+               "answer": "A", "image_paths": {"image_1": "images/a.png"}, "category": "KeySignature"}
+        (d / "train_subset.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        return d, row
+
+    def test_tagged_question_keeps_the_image(self):
+        from ssmr_client import build_content
+        from train_grpo import load_examples
+
+        d, row = self._data("<image 1> 조표는?")
+        self.assertIn("image_url", [c["type"] for c in build_content(row, d)])
+        self.assertEqual(len(load_examples(d, d / "jpeg", "train_subset.jsonl")[0]["images"]), 1)
+
+    def test_untagged_question_is_rejected(self):
+        from ssmr_client import build_content
+        from train_grpo import load_examples
+
+        d, row = self._data("조표는?")
+        with self.assertRaises(ValueError):
+            build_content(row, d)
+        with self.assertRaises(SystemExit):
+            load_examples(d, d / "jpeg", "train_subset.jsonl")
+
+
 class GrpoConfigOptions(unittest.TestCase):
     """E1' 옵션(--beta, --mask-truncated, --save-total-limit)이 GRPOConfig로 제대로 전달되는지. trl은 가짜 모듈로 대신한다."""
 

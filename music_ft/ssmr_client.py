@@ -53,6 +53,8 @@ def build_content(row, data_dir):
     for key, rel in row["image_paths"].items():
         sample[key] = Image.open(Path(data_dir) / rel)
     content, _ = build_mmmu_pro_cot_content(sample)
+    if row["image_paths"] and not any(c.get("type") == "image_url" for c in content):
+        raise ValueError(f"{row.get('id')}: " + "이미지 파일은 있는데 질문에 '<image 1> ' 표시가 없어 이미지가 프롬프트에서 빠진다(텍스트만으로 학습/평가하게 된다). 질문을 '<image 1> '로 시작하게 고치세요 (lab/validate_mcq_dataset.py로 검증).")
     return content
 
 

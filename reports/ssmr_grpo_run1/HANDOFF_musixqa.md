@@ -15,7 +15,7 @@ MMMU 전체 900문항 평가(`full2`)는 2026-11-04에 끝났다. **결과: SSMR
 |---|---|---|
 | 1. 어댑터 받고 무결성 확인 | 1절의 `gh release download`, `shasum -a 256 -c SHA256SUMS` | 두 파일 모두 `OK` |
 | 2. MusiXQA 객관식 데이터 만들기 | `musixqa` 브랜치의 `lab/MusiXQA_객관식_요청서.md`대로(4지선다, 카테고리, 오답 규칙, 분량, 문서당 최대 2문항) | train/holdout 분리, holdout 문서가 train에 없음 |
-| 3. 형식 검증 | `python lab/validate_mcq_dataset.py --data-dir <폴더>` (`musixqa` 브랜치) | ERROR 0개 |
+| 3. 형식 검증 | `python lab/validate_mcq_dataset.py --data-dir <폴더>` (`musixqa` 브랜치) | ERROR 0개. 질문이 `<image 1> `로 시작하지 않으면 이미지가 프롬프트에서 빠진다(학습·평가 코드가 오류로 알려 준다) |
 | 4. 눈으로 내용 확인 | 카테고리별 무작위 20개 이상: 정답이 맞는지, 보기가 모호하지 않은지, 이미지에서 답이 보이는지 | 문제 있는 문항을 고쳤다 |
 | 5. MMMU 중복 제거 | `python music_ft/dedupe.py ...`(SSMR에서는 겹침 0건이었다). MMMU validation/test와 겹치면 학습에서 뺀다 | 겹침 보고서 확인 |
 | 6. 이미지 토큰 수 측정 | 아래 코드. SSMR 이미지는 약 990토큰이었다 | MusiXQA 풀페이지의 토큰 수를 알았다 |
@@ -57,6 +57,8 @@ print("이미지 토큰:", int(t * h * w) // (ip.merge_size ** 2))
 - **실습실의 `~/mmdl/MMDL_ssmr` 폴더에서 `git checkout`/`git pull`로 `lab/` 파일을 바꾸는 것.** 실행 중인 `run_pipeline.sh`는 bash가 실행 도중에 읽기 때문에 파일이 바뀌면 오동작할 수 있다. 작업은 다른 폴더에 새로 clone해서 한다.
 - 본 학습 시작(위 C를 정하기 전), 평가 조건(프롬프트, sampling, 해상도, judge) 변경, Music 4번을 8번으로 늘리기(팀 합의 필요).
 - `.env`나 HF 토큰, 100MB 넘는 파일을 git에 올리는 것(가중치는 GitHub Release를 쓴다).
+
+실습실에서 데이터가 도착한 뒤의 단계별 명령은 `lab/RUNBOOK_musixqa.md`에 있다.
 
 ## 1. 받는 것
 

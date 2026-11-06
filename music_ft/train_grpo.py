@@ -133,6 +133,8 @@ def load_examples(data_dir, jpeg_dir, jsonl_name, limit=None):
         for line in f:
             row = json.loads(line)
             text, image_order, _ = build_mmmu_pro_cot_text(row)
+            if row["image_paths"] and not image_order:
+                raise SystemExit(f"{row['id']}: " + "이미지 파일은 있는데 질문에 '<image 1> ' 표시가 없어 이미지가 프롬프트에서 빠진다(텍스트만으로 학습/평가하게 된다). 질문을 '<image 1> '로 시작하게 고치세요 (lab/validate_mcq_dataset.py로 검증).")
 
             image_files = []
             for n in image_order:
