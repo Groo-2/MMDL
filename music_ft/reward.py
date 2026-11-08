@@ -16,7 +16,7 @@ def _mmmu_eval_dir():
 
 sys.path.insert(0, _mmmu_eval_dir())
 
-from parsing import parse_multiple_choice  # noqa: E402
+from parsing import extract_open_answer, open_is_correct, parse_multiple_choice  # noqa: E402
 
 NUM_OPTIONS = 4
 
@@ -34,11 +34,23 @@ def completion_text(completion):
     return ""
 
 
+def score_completion(completion, answer, question_type="multiple-choice", num_options=NUM_OPTIONS):
+    """객관식은 'Answer: X'의 글자, 주관식(open)은 평가와 같은 판정(숫자는 소수 둘째 자리, 그 외 정규화 문자열 일치)으로 채점한다.
+    answer는 객관식이면 글자, 주관식이면 정답 문자열 또는 문자열 목록."""
+    text = completion_text(completion)
+    if question_type == "open":
+        return 1.0 if open_is_correct(extract_open_answer(text), answer) else 0.0
+    return 1.0 if parse_multiple_choice(text, int(num_options)) == answer else 0.0
+
+
 def score_one(completion, answer):
-    predicted = parse_multiple_choice(completion_text(completion), NUM_OPTIONS)
-    return 1.0 if predicted == answer else 0.0
+    """SSMR 호환(4지선다)."""
+    return score_completion(completion, answer)
 
 
-def accuracy_reward(completions, answer, **kwargs):
-    """TRL GRPOTrainer reward_funcs용. dataset의 'answer' 열이 키워드로 들어온다."""
-    return [score_one(c, a) for c, a in zip(completions, answer)]
+def accuracy_reward(completions, answer, question_type=None, num_options=None, **kwargs):
+    """TRL GRPOTrainer reward_funcs용. dataset의 'answer', 'question_type', 'num_options' 열이 키워드로 들어온다(없으면 4지선다)."""
+    n = len(completions)
+    qts = question_type if question_type is not None else ["multiple-choice"] * n
+    nos = num_options if num_options is not None else [NUM_OPTIONS] * n
+    return [score_completion(c, a, qt, no) for c, a, qt, no in zip(completions, answer, qts, nos)]

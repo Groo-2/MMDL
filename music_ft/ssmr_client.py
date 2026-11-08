@@ -23,7 +23,7 @@ sys.path.insert(0, _mmmu_eval_dir())
 sys.path.insert(0, str(HERE))
 
 from prompting import MAX_PIXELS, MIN_PIXELS, build_mmmu_pro_cot_content  # noqa: E402
-from reward import score_one  # noqa: E402
+from reward import score_completion, score_one  # noqa: E402,F401
 
 import requests  # noqa: E402
 
@@ -39,6 +39,12 @@ def load_rows(path, limit=None):
                 if limit and len(rows) >= limit:
                     break
     return rows
+
+
+def score_row(text, row):
+    """문항(행)의 형식(객관식/주관식, 선택지 수)에 맞게 응답을 채점한다."""
+    qt = row.get("question_type", "multiple-choice")
+    return score_completion(text, row["answer"], qt, len(row.get("options") or []) or 4)
 
 
 def build_content(row, data_dir):

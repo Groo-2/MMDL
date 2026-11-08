@@ -23,7 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from ssmr_client import CATEGORIES, build_content, chat, load_rows, score_one  # noqa: E402
+from ssmr_client import CATEGORIES, build_content, chat, load_rows, score_row  # noqa: E402
 
 SEED = 42
 
@@ -112,7 +112,7 @@ def select_subset(screened, per_category, lo=1 / 8, hi=7 / 8, seed=SEED):
 # 통과율 측정 (vLLM 서버 필요)
 # ------------------------------------------------------------
 
-def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, screen_file):
+def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, screen_file, samples_file=None):
     done = {}
     if screen_file.exists():
         for line in screen_file.open(encoding="utf-8"):
@@ -124,10 +124,13 @@ def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, scr
     def one(row):
         content = build_content(row, data_dir)
         outs = chat(api_base, model, content, n=n, max_tokens=max_tokens, seed=SEED)
-        k = sum(score_one(text, row["answer"]) for text, _ in outs)
-        return {"id": row["id"], "category": row["category"], "k": int(k), "n": len(outs),
-                "truncated": sum(1 for _, fr in outs if fr == "length")}
+        scores = [score_row(text, row) for text, _ in outs]
+        return {"id": row["id"], "category": row["category"], "k": int(sum(scores)), "n": len(outs),
+                "truncated": sum(1 for _, fr in outs if fr == "length"),
+                "_samples": [{"text": text, "correct": bool(sc), "finish_reason": fr}
+                             for (text, fr), sc in zip(outs, scores)]}
 
+    sfp = samples_file.open("a", encoding="utf-8") if samples_file else None     # RFT용: 문항별 8개 응답과 정오를 따로 저장
     with screen_file.open("a", encoding="utf-8") as fp, ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = {pool.submit(one, r): r for r in todo}
         for i, fut in enumerate(as_completed(futures), 1):
@@ -136,11 +139,17 @@ def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, scr
             except Exception as e:  # noqa: BLE001
                 print(f"[screen] {futures[fut]['id']} 실패: {e!r}", flush=True)
                 continue
+            samples = res.pop("_samples", None)
             done[res["id"]] = res
             fp.write(json.dumps(res, ensure_ascii=False) + "\n")
             fp.flush()
+            if sfp is not None and samples:
+                sfp.write(json.dumps({"id": res["id"], "samples": samples}, ensure_ascii=False) + "\n")
+                sfp.flush()
             if i % 100 == 0:
                 print(f"[screen] {i}/{len(todo)}", flush=True)
+    if sfp is not None:
+        sfp.close()
     return [done[r["id"]] for r in rows if r["id"] in done]
 
 
@@ -159,6 +168,8 @@ def main():
     parser.add_argument("--start-server", action="store_true", help="vLLM 서버를 직접 띄우고 끝나면 종료")
     parser.add_argument("--select-only", action="store_true", help="측정은 건너뛰고 screen_results.jsonl로 선별만")
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 후보 앞 N개만")
+    parser.add_argument("--save-samples", action="store_true",
+                        help="문항별 응답 텍스트와 정오를 screen_samples.jsonl에 저장한다 (RFT 학습 데이터용)")
     parser.add_argument("--max-images", type=int, default=None,
                         help="이미지가 N장을 넘는 문항은 후보에서 제외 (24GB 학습은 1: 5장 문항은 스텝 78분+메모리 한계)")
     args = parser.parse_args()
@@ -192,7 +203,8 @@ def main():
                 8000, data_dir / "vllm_screen.log")
         try:
             screened = screen_rows(pool, data_dir, args.api_base, "qwen3-vl-4b", args.n, args.max_tokens,
-                                   args.concurrency, screen_file)
+                                   args.concurrency, screen_file,
+                                   samples_file=(data_dir / "screen_samples.jsonl") if args.save_samples else None)
         finally:
             if server is not None:
                 stop_server(server)

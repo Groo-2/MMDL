@@ -535,6 +535,88 @@ class ServerEnv(unittest.TestCase):
 
 
 
+class GeneralConversion(unittest.TestCase):
+    """DeepVision 변환 규칙과 주관식·가변 선택지 채점 (일반 데이터 RFT용). 채점이 틀리면 학습에 오답 응답이 섞이므로 규칙을 고정해 둔다."""
+
+    def test_split_mcq(self):
+        from build_general import split_mcq
+
+        stem, opts = split_mcq("How many segments equal AO? \nA. 3 \nB. 4 \nC. 5 \nD. 6")
+        self.assertEqual(stem, "How many segments equal AO?")
+        self.assertEqual(opts, ["3", "4", "5", "6"])
+        self.assertEqual(split_mcq("Q?\n(A) yes\n(B) no")[1], ["yes", "no"])               # 괄호 표기
+        self.assertIsNone(split_mcq("Which is symmetric?\nΔABO\nΔCDO\nΔEFO"))             # 글자 없는 보기
+        self.assertIsNone(split_mcq("Q?\nA. 1\nC. 3"))                                      # 글자가 연속이 아님
+        self.assertIsNone(split_mcq("A. only options"))                                       # 질문 본문이 없음
+
+    @staticmethod
+    def _row(question, gt, eq=("__EMPTY__",), rate="3/8", images=1):
+        return {"question": question, "reward_model": {"ground_truth": gt, "equivalent_answers": list(eq)},
+                "mimo-pass_rate": rate, "domain-anno": json.dumps({"Level_1": "Geometry"}),
+                "images": [{"bytes": b"x", "path": "a.png"}] * images}
+
+    def test_convert_rules(self):
+        from build_general import convert_row
+
+        ok, why = convert_row(1, self._row("Q?\nA. 3\nB. 4", "B"))
+        self.assertEqual((why, ok["question_type"], ok["answer"], ok["options"]), ("ok", "multiple-choice", "B", ["3", "4"]))
+        self.assertTrue(ok["question"].startswith("<image 1> "))
+        num, why = convert_row(2, self._row("Find the area.", "18.5", eq=("37/2", "__EMPTY__")))
+        self.assertEqual((why, num["question_type"], num["answer"]), ("ok", "open", ["18.5", "37/2"]))
+        self.assertEqual(convert_row(3, self._row("Which?\nΔAB\nΔCD", "C"))[1], "unlabeled_options")
+        self.assertEqual(convert_row(4, self._row("Find the equation.", "(x-1)^2+y^2=1"))[1], "non_numeric_answer")
+        self.assertEqual(convert_row(5, self._row("求面积 area?", "3"))[1], "cjk")
+        self.assertEqual(convert_row(6, self._row("Q?\nA. 3\nB. 4", "B", images=2))[1], "image_count")
+        self.assertEqual(convert_row(7, self._row("Q?\nA. 3\nB. 4", "B", rate="0/8"))[1], "pass_rate")
+        self.assertEqual(convert_row(8, self._row("Q?\nA. 3\nB. 4", "B", rate="8/8"))[1], "pass_rate")
+        self.assertEqual(convert_row(9, self._row("Q?\nA. 3\nB. 4", "E"))[1], "mc_answer_mismatch")
+
+    def test_scoring_open_and_variable_options(self):
+        from reward import accuracy_reward, score_completion
+
+        self.assertEqual(score_completion("Answer: 3.18", ["3.18", "11/6"], "open"), 1.0)
+        self.assertEqual(score_completion("so ... Answer: 3.1769", "3.18", "open"), 1.0)      # 소수 둘째 자리 반올림
+        self.assertEqual(score_completion("Answer: 4", "3.18", "open"), 0.0)
+        self.assertEqual(score_completion("no answer line", "3.18", "open"), 0.0)
+        self.assertEqual(score_completion("Answer: E", "E", "multiple-choice", 6), 1.0)       # 보기 6개
+        self.assertEqual(score_completion("Answer: E", "E", "multiple-choice", 4), 0.0)       # 4개면 E는 유효하지 않음
+        self.assertEqual(accuracy_reward(["Answer: B"], ["B"]), [1.0])                         # 기본은 SSMR 4지선다
+        self.assertEqual(accuracy_reward(["Answer: 7"], ["7"], question_type=["open"], num_options=[0]), [1.0])
+
+    def test_end_to_end_with_fake_parquet(self):
+        try:
+            import pandas as pd
+            import pyarrow  # noqa: F401
+        except Exception as e:  # noqa: BLE001  (이 PC의 pandas/pyarrow/numpy 버전이 안 맞으면 건너뛴다)
+            self.skipTest(f"pandas/pyarrow를 쓸 수 없다: {type(e).__name__}")
+        from PIL import Image
+        import io
+        import build_general
+
+        buf = io.BytesIO(); Image.new("RGB", (8, 8), "white").save(buf, format="PNG")
+        rows = []
+        for i in range(30):
+            r = self._row(f"Q{i}?\nA. 1\nB. 2", "A" if i % 2 else "B", rate="2/8") if i % 3 else self._row(f"Find {i}.", str(i), rate="2/8")
+            r["images"] = [{"bytes": buf.getvalue(), "path": f"x{i}.png"}]
+            r["data_source"] = "t"; r["ability"] = "math"; r["prompt"] = "p"; r["gpt5-mini-vision-anno"] = ""; r["q32-vision-anno"] = ""
+            rows.append(r)
+        d = Path(tempfile.mkdtemp())
+        try:
+            pd.DataFrame(rows).to_parquet(d / "t.parquet")
+        except Exception as e:  # noqa: BLE001  (pyarrow/numpy 버전이 안 맞는 PC에서는 parquet을 만들 수 없다)
+            self.skipTest(f"parquet을 쓸 수 없다: {type(e).__name__}")
+        old = sys.argv
+        sys.argv = ["build_general.py", "--parquet", str(d / "t.parquet"), "--out-dir", str(d / "out"), "--pool-size", "12"]
+        try:
+            build_general.main()
+        finally:
+            sys.argv = old
+        out = [json.loads(l) for l in (d / "out" / "train.jsonl").read_text().splitlines()]
+        self.assertEqual(len(out), 12)
+        self.assertTrue(all((d / "out" / r["image_paths"]["image_1"]).exists() for r in out))
+        self.assertEqual({r["question_type"] for r in out}, {"multiple-choice", "open"})
+
+
 class MissingImageTag(unittest.TestCase):
     """질문에 '<image 1> '이 없으면 이미지가 조용히 빠진다. 학습/선별/평가 코드는 이를 오류로 알려야 한다."""
 
