@@ -617,6 +617,63 @@ class GeneralConversion(unittest.TestCase):
         self.assertEqual({r["question_type"] for r in out}, {"multiple-choice", "open"})
 
 
+class DedupeLogic(unittest.TestCase):
+    """MMMU 전 과목 중복 제거의 판정 로직 (HF 다운로드 없이 가짜 MMMU 문항으로)."""
+
+    @staticmethod
+    def _png(kind, size=160):
+        import io
+
+        from PIL import Image, ImageDraw
+
+        img = Image.new("RGB", (size, size), "white")
+        d = ImageDraw.Draw(img)
+        if kind == "circle":
+            d.ellipse((30, 30, 130, 130), fill="black")
+        elif kind == "rect":
+            d.rectangle((20, 60, 140, 100), fill="black")
+        else:
+            d.polygon([(80, 20), (20, 140), (140, 140)], fill="black")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue(), img
+
+    def test_check_row(self):
+        import io
+
+        import dedupe as D
+
+        circle, circle_img = self._png("circle")
+        rect, _ = self._png("rect")
+        tri, _ = self._png("tri")
+        long_q = "A particle moves along a straight line with constant acceleration; find its displacement after four seconds."
+        items = [
+            {"id": "m1", "split": "validation", "question": "<image 1> Which shape is shown in the figure?", "options": ["a", "b"], "images": [circle]},
+            {"id": "m2", "split": "test", "question": "<image 1> What is drawn?", "options": ["c", "d"], "images": [rect]},
+            {"id": "m3", "split": "test", "question": long_q, "options": [], "images": []},
+        ]
+        ref = D.build_reference(items)
+        self.assertEqual((ref["items"], len(ref["hash"])), (3, 2))
+
+        d = Path(tempfile.mkdtemp())
+        (d / "same.png").write_bytes(circle)
+        buf = io.BytesIO()
+        circle_img.resize((150, 150)).save(buf, format="JPEG", quality=60)
+        (d / "variant.jpg").write_bytes(buf.getvalue())
+        (d / "other.png").write_bytes(tri)
+
+        def row(question, img, options=()):
+            return {"id": "r", "question": question, "options": list(options), "image_paths": {"image_1": img}}
+
+        self.assertTrue(D.check_row(row("<image 1> zzz", "same.png"), d, ref)[0].startswith("sha1"))
+        self.assertTrue(D.check_row(row("<image 1> zzz", "variant.jpg"), d, ref)[0].startswith("phash"))      # 재인코딩·크기 변경
+        self.assertIsNone(D.check_row(row("<image 1> unrelated question about triangles", "other.png"), d, ref)[0])
+        self.assertEqual(D.check_row(row("<image 1> " + long_q, "other.png"), d, ref)[0], "text_exact")        # 이미지는 달라도 질문이 같음
+        near = long_q.replace("four seconds", "4 seconds")
+        self.assertEqual(D.check_row(row("<image 1> " + near, "other.png"), d, ref)[0], "text")               # 선택지 같고 글자 유사도 높음
+        self.assertIsNone(D.check_row(row("<image 1> Find x.", "other.png"), d, ref)[0])                       # 짧은 질문은 완전 일치로 제거하지 않음
+
+
 class MissingImageTag(unittest.TestCase):
     """질문에 '<image 1> '이 없으면 이미지가 조용히 빠진다. 학습/선별/평가 코드는 이를 오류로 알려야 한다."""
 
