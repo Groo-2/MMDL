@@ -127,7 +127,7 @@ model = PeftModel.from_pretrained(model, "path/to/final_lora")    # 학습을 �
 
 ## 4. 데이터 요구사항 (교수님 규칙 + 파이프라인 요구)
 
-- 학습 데이터 조건: ① 대학 수준 난이도 ② MMMU 형식(이미지+문제+선택지+정답) ③ **MMMU validation/test 데이터가 아닐 것**.
+- 학습 데이터 제한: **MMMU validation/test 데이터를 학습에 쓰지 않는다**(과제의 평가 무결성). 수준(대학/초중고)과 과목은 제한이 아니다. 이미지+질문+선택지+정답이라는 형식은 교수님 규칙이 아니라 이 학습 파이프라인의 요구사항이다.
   MMMU Music과 겹치는지 `music_ft/dedupe.py`로 확인하라(SSMR는 겹침 0건).
 - 보상(`music_ft/reward.py`)은 4지선다(`NUM_OPTIONS = 4`, A~D)를 가정하고 `Answer: X` 줄을 읽는다. 선택지가 4개가 아니면 수정이 필요하다.
 - 형식 검증: `musixqa` 브랜치의 `lab/validate_mcq_dataset.py --data-dir <폴더>`. ERROR가 있으면 학습 전에 고친다. 요청서에 오답 구성 규칙,
