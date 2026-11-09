@@ -28,10 +28,10 @@ def make_labels(input_ids, prompt_len):
     return [-100] * prompt_len + list(input_ids[prompt_len:])
 
 
-def response_only_loss(hidden, lm_head, labels, num_items_in_batch=None, grad_accum=1):
-    """응답 위치의 어휘 확률만 계산해서 손실을 구한다 (전체 위치를 계산하면 15만 단어 x 수천 토큰의 fp32 확률이 24GB를 넘긴다).
-    HF의 기본 손실과 같은 값이다: 위치 t의 은닉 상태가 토큰 t+1을 예측하고, 응답 토큰의 평균 교차 엔트로피.
-    Trainer가 num_items_in_batch(누적 배치 전체의 응답 토큰 수)를 주면 합을 그 수로 나눠서(누적 간 토큰 평균), 없으면 평균 / 누적 횟수."""
+def response_only_ce(hidden, lm_head, labels):
+    """응답 위치의 어휘 확률만 계산해서 (교차 엔트로피 합, 응답 토큰 수)를 돌려준다.
+    전체 위치를 계산하면 15만 단어 x 수천 토큰의 fp32 확률이 24GB를 넘긴다. 위치 t의 은닉 상태가 토큰 t+1을 예측한다
+    (HF의 기본 손실과 같은 값: 응답 토큰의 평균 교차 엔트로피 = 합 / 토큰 수)."""
     import torch
 
     first = int((labels[0] != -100).nonzero()[0])
@@ -39,9 +39,7 @@ def response_only_loss(hidden, lm_head, labels, num_items_in_batch=None, grad_ac
     target = labels[:, first:]
     ce = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), target.reshape(-1),
                                            ignore_index=-100, reduction="sum")
-    if num_items_in_batch is not None:
-        return ce / num_items_in_batch
-    return ce / (target != -100).sum() / grad_accum
+    return ce, (target != -100).sum()
 
 
 class RFTCollator:
@@ -148,7 +146,13 @@ def main():
             labels = inputs.pop("labels")
             causal = model.get_base_model() if hasattr(model, "get_base_model") else model
             hidden = causal.model(**inputs).last_hidden_state
-            loss = response_only_loss(hidden, causal.lm_head, labels, num_items_in_batch, self.args.gradient_accumulation_steps)
+            ce, n_tokens = response_only_ce(hidden, causal.lm_head, labels)
+            if num_items_in_batch is not None:
+                # 누적 배치 전체의 토큰 수로 나눈 뒤, Trainer가 누적 횟수로 한 번 더 나눈다 (transformers 5.19.0에서 확인:
+                # 이 곱셈이 없으면 loss/grad_norm이 HF 기본 손실의 1/누적횟수로 나온다)
+                loss = ce / num_items_in_batch * self.args.gradient_accumulation_steps
+            else:
+                loss = ce / n_tokens                  # Trainer가 누적 횟수로 나눈다
             return (loss, None) if return_outputs else loss
 
     trainer_cls = Trainer if args.hf_loss else ResponseOnlyTrainer
