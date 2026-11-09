@@ -1,0 +1,6 @@
+# Verified with Python 3.12.10 on Windows. Data preparation only.
+huggingface_hub==2.4.0
+music21==10.5.2
+Pillow==13.0.0
+# MMMU Music parquet files for duplicate screening.
+pyarrow==26.0.1

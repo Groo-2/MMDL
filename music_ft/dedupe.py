@@ -12,6 +12,8 @@ MMMU는 run_mmmu_eval.py와 같은 revision을 pin해서 parquet로 직접 읽�
 """
 
 import argparse
+import ast
+from collections import Counter
 import difflib
 import hashlib
 import io
@@ -80,6 +82,11 @@ def load_mmmu_music(cache_dir):
                 "options": row["options"],
                 "images": images,
             })
+    splits = Counter(item["split"] for item in items)
+    if set(splits) != {"dev", "validation", "test"}:
+        raise ValueError(f"Incomplete MMMU Music reference splits: {dict(splits)}")
+    if not any(item["images"] for item in items):
+        raise ValueError("MMMU Music reference contains no images")
     return items
 
 
@@ -91,20 +98,24 @@ def parse_options(value):
     if isinstance(value, list):
         return value
     try:
-        return json.loads(value.replace("'", '"'))
-    except Exception:
+        parsed = ast.literal_eval(value)
+        return parsed if isinstance(parsed, list) else [value]
+    except (ValueError, SyntaxError):
         return [value]
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-dir", required=True, help="build_ssmr.py의 --out-dir")
+    parser.add_argument("--data-dir", required=True, help="MCQ dataset directory")
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--max-hamming", type=int, default=20)
     parser.add_argument("--text-ratio", type=float, default=0.9)
     args = parser.parse_args()
 
     data_dir = Path(args.data_dir)
+    for name in ("train.dedup.jsonl", "holdout.dedup.jsonl", "dedupe_report.json"):
+        if (data_dir / name).exists():
+            raise FileExistsError(f"Preserve previous results before rerunning: {data_dir / name}")
     mmmu = load_mmmu_music(args.cache_dir)
     print("MMMU Music:", {s: sum(m["split"] == s for m in mmmu) for s in sorted({m['split'] for m in mmmu})})
 
@@ -122,11 +133,19 @@ def main():
         for m in mmmu
     ]
 
-    report = {"max_hamming": args.max_hamming, "text_ratio": args.text_ratio}
+    report = {
+        "max_hamming": args.max_hamming, "text_ratio": args.text_ratio,
+        "reference": {"repo": MMMU_REPO, "revision": MMMU_REVISION,
+                      "subject": "Music", "splits": dict(Counter(m["split"] for m in mmmu)),
+                      "image_count": len(ref_hash)},
+        "scope": "MMMU Music dev/validation/test only; not other MMMU subjects or internal split deduplication",
+        "image_hash": {"exact": "sha1", "perceptual_bits": HASH_SIZE ** 2},
+    }
 
     for name in ("train", "holdout"):
         src = data_dir / f"{name}.jsonl"
-        rows = [json.loads(line) for line in src.open(encoding="utf-8")]
+        with src.open(encoding="utf-8") as stream:
+            rows = [json.loads(line) for line in stream]
         kept, dropped, min_dists = [], [], []
 
         for row in rows:
@@ -168,11 +187,14 @@ def main():
 
         arr = np.array(min_dists)
         report[name] = {
+            "input_sha256": hashlib.sha256(src.read_bytes()).hexdigest(),
+            "output_sha256": hashlib.sha256(out.read_bytes()).hexdigest(),
             "total": len(rows),
             "kept": len(kept),
             "dropped": len(dropped),
             "min_hamming_percentiles": {str(p): float(np.percentile(arr, p)) for p in (0, 1, 5, 50)},
             "dropped_examples": dropped[:20],
+            "dropped_items": dropped,
         }
         print(f"{name}: {len(rows)} → {len(kept)} (제거 {len(dropped)}), 최소 해밍 분포 "
               f"{report[name]['min_hamming_percentiles']}")

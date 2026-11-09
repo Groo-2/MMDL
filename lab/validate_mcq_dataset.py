@@ -167,7 +167,7 @@ def validate_dataset(data_dir, args):
     errors, warns, report = [], [], {}
     splits = {}
     for name in ("train", "holdout"):
-        path = data_dir / f"{name}.jsonl"
+        path = data_dir / (args.train_file if name == "train" else args.holdout_file)
         if not path.exists():
             errors.append(f"{path.name} 파일이 없다")
             continue
@@ -240,6 +240,9 @@ def validate_dataset(data_dir, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", required=True)
+    parser.add_argument("--train-file", default="train.jsonl")
+    parser.add_argument("--holdout-file", default="holdout.jsonl")
+    parser.add_argument("--report-file", default="validation_report.json")
     parser.add_argument("--id-prefix", default="musixqa", help="id는 <prefix>_train_..., <prefix>_holdout_... (빈 문자열이면 train_..., holdout_...)")
     parser.add_argument("--max-images", type=int, default=1)
     parser.add_argument("--allow-image-options", action="store_true", help="선택지가 '<image N>'인 문항을 허용 (SSMR 비교용. MusiXQA는 쓰지 않는다)")
@@ -252,7 +255,7 @@ def main():
     args = parser.parse_args()
 
     report = validate_dataset(args.data_dir, args)
-    Path(args.data_dir, "validation_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    Path(args.data_dir, args.report_file).write_text(json.dumps(report, ensure_ascii=False, indent=2))
 
     for name in ("train", "holdout"):
         if name in report:
