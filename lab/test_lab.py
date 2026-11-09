@@ -674,6 +674,70 @@ class DedupeLogic(unittest.TestCase):
         self.assertIsNone(D.check_row(row("<image 1> Find x.", "other.png"), d, ref)[0])                       # 짧은 질문은 완전 일치로 제거하지 않음
 
 
+class RftData(unittest.TestCase):
+    """RFT 학습 데이터 선택 규칙과 손실 마스크 (모델 없이 확인 가능한 부분)."""
+
+    @staticmethod
+    def _samples(spec):
+        return [{"text": t, "correct": c, "finish_reason": f} for t, c, f in spec]
+
+    def test_degenerate_detection(self):
+        from build_rft import looks_degenerate
+
+        self.assertFalse(looks_degenerate("Step 1: set up the equation.\nStep 2: solve it.\nAnswer: 3"))
+        self.assertTrue(looks_degenerate("\n".join(["Let me recheck the calculation again."] * 6) + "\nAnswer: 3"))
+        self.assertFalse(looks_degenerate("a\nb\nb\nb\nb\nb\nb"))        # 짧은 줄은 무시
+
+    def test_select_samples_rules(self):
+        import random
+
+        from build_rft import select_samples
+
+        good = [(f"solution {i} with enough detail to be unique\nAnswer: A", True, "stop") for i in range(4)]
+        wrong = [(f"bad {i}\nAnswer: B", False, "stop") for i in range(3)] + [("loops...", False, "length")]
+        rng = random.Random(0)
+        picked = select_samples(self._samples(good + wrong), 1, 7, 2, rng)
+        self.assertEqual(len(picked), 2)
+        self.assertTrue(all("Answer: A" in p for p in picked))                                   # 맞은 응답만
+        self.assertEqual(select_samples(self._samples([(g[0], True, "stop") for g in good] * 2), 1, 7, 2, rng), [])     # 8/8은 제외
+        self.assertEqual(select_samples(self._samples(wrong * 2), 1, 7, 2, rng), [])                                    # 0/8은 제외
+        trunc_only = self._samples([("long right answer\nAnswer: A", True, "length")] + wrong)
+        self.assertEqual(select_samples(trunc_only, 1, 7, 2, rng), [])                           # 잘린 응답은 쓰지 않음
+        dup = self._samples([("same text here\nAnswer: A", True, "stop")] * 3 + wrong)
+        self.assertEqual(len(select_samples(dup, 1, 7, 3, rng)), 1)                               # 같은 응답은 한 번만
+
+    def test_selection_is_not_biased_to_short(self):
+        import random
+
+        from build_rft import select_samples
+
+        samples = self._samples([("x" * (50 + 40 * i) + f" {i}\nAnswer: A", True, "stop") for i in range(6)]
+                                + [("bad\nAnswer: B", False, "stop")] * 2)
+        lengths = []
+        for seed in range(200):
+            lengths += [len(p) for p in select_samples(samples, 1, 7, 1, random.Random(seed))]
+        self.assertGreater(sum(lengths) / len(lengths), 130)       # 가장 짧은 것(약 60자)만 고르면 평균이 훨씬 작다
+
+    def test_build_and_labels(self):
+        from build_rft import build
+        from train_rft import make_labels
+        import random
+
+        d = Path(tempfile.mkdtemp())
+        row = {"id": "q1", "question": "<image 1> What is 1+1?", "options": [], "question_type": "open", "answer": "2",
+               "image_paths": {"image_1": "images/a.png"}, "category": "Algebra"}
+        (d / "train.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        samples = [{"text": f"1+1=2 solution {i}\nAnswer: 2", "correct": i < 3, "finish_reason": "stop"} for i in range(8)]
+        (d / "screen_samples.jsonl").write_text(json.dumps({"id": "q1", "samples": samples}) + "\n", encoding="utf-8")
+        out, stats = build(("dv", str(d), "train.jsonl", None), random.Random(0), 1, 7, 2)
+        self.assertEqual((len(out), stats["prompts_used"]), (2, 1))
+        self.assertEqual(out[0]["source"], "dv")
+        self.assertEqual(out[0]["data_dir"], str(d))
+        self.assertEqual(make_labels([5, 6, 7, 8, 9], 3), [-100, -100, -100, 8, 9])
+        with self.assertRaises(ValueError):
+            make_labels([5, 6, 7], 3)
+
+
 class MissingImageTag(unittest.TestCase):
     """질문에 '<image 1> '이 없으면 이미지가 조용히 빠진다. 학습/선별/평가 코드는 이를 오류로 알려야 한다."""
 
