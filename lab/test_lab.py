@@ -738,6 +738,34 @@ class RftData(unittest.TestCase):
             make_labels([5, 6, 7], 3)
 
 
+class ResponseOnlyLoss(unittest.TestCase):
+    """응답 위치만 계산하는 손실이 전체 위치를 계산하는 HF식 손실과 같은 값/기울기를 주는지 (작은 가짜 모델로)."""
+
+    def test_matches_full_logits_loss(self):
+        try:
+            import torch
+        except Exception as e:  # noqa: BLE001
+            self.skipTest(f"torch를 쓸 수 없다: {type(e).__name__}")
+        from train_rft import response_only_loss
+
+        torch.manual_seed(0)
+        L, H, V = 12, 8, 50
+        hidden = torch.randn(1, L, H, requires_grad=True)
+        head = torch.nn.Linear(H, V, bias=False)
+        labels = torch.randint(0, V, (1, L))
+        labels[0, :7] = -100                                   # 프롬프트 7토큰은 손실 제외
+        full_logits = head(hidden)
+        ref = torch.nn.functional.cross_entropy(full_logits[:, :-1].reshape(-1, V), labels[:, 1:].reshape(-1), ignore_index=-100)
+        ours = response_only_loss(hidden, head, labels)
+        self.assertTrue(torch.allclose(ref, ours, atol=1e-6), (ref.item(), ours.item()))
+        g_ref, = torch.autograd.grad(ref, hidden, retain_graph=True)
+        g_ours, = torch.autograd.grad(ours, hidden)
+        self.assertTrue(torch.allclose(g_ref, g_ours, atol=1e-6))
+        n = int((labels[:, 1:] != -100).sum())
+        self.assertTrue(torch.allclose(response_only_loss(hidden, head, labels, num_items_in_batch=n * 4), ref / 4, atol=1e-6))  # 누적 4번의 토큰 수로 나눔
+        self.assertTrue(torch.allclose(response_only_loss(hidden, head, labels, None, grad_accum=4), ref / 4, atol=1e-6))
+
+
 class MissingImageTag(unittest.TestCase):
     """질문에 '<image 1> '이 없으면 이미지가 조용히 빠진다. 학습/선별/평가 코드는 이를 오류로 알려야 한다."""
 

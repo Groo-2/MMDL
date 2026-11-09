@@ -28,6 +28,22 @@ def make_labels(input_ids, prompt_len):
     return [-100] * prompt_len + list(input_ids[prompt_len:])
 
 
+def response_only_loss(hidden, lm_head, labels, num_items_in_batch=None, grad_accum=1):
+    """응답 위치의 어휘 확률만 계산해서 손실을 구한다 (전체 위치를 계산하면 15만 단어 x 수천 토큰의 fp32 확률이 24GB를 넘긴다).
+    HF의 기본 손실과 같은 값이다: 위치 t의 은닉 상태가 토큰 t+1을 예측하고, 응답 토큰의 평균 교차 엔트로피.
+    Trainer가 num_items_in_batch(누적 배치 전체의 응답 토큰 수)를 주면 합을 그 수로 나눠서(누적 간 토큰 평균), 없으면 평균 / 누적 횟수."""
+    import torch
+
+    first = int((labels[0] != -100).nonzero()[0])
+    logits = lm_head(hidden[:, first - 1:-1, :]).float()
+    target = labels[:, first:]
+    ce = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.size(-1)), target.reshape(-1),
+                                           ignore_index=-100, reduction="sum")
+    if num_items_in_batch is not None:
+        return ce / num_items_in_batch
+    return ce / (target != -100).sum() / grad_accum
+
+
 class RFTCollator:
     """행 하나를 모델 입력으로 만든다 (마이크로 배치 1). 이미지는 학습 데이터 준비 때와 같이 JPEG q95로 한 번 거친다."""
 
@@ -88,6 +104,7 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N행만")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--hf-loss", action="store_true", help="응답 위치만 계산하는 손실 대신 HF 기본 손실을 쓴다 (비교용, 메모리를 더 쓴다)")
     args = parser.parse_args()
 
     import torch
@@ -126,7 +143,16 @@ def main():
         gradient_checkpointing_kwargs={"use_reentrant": False}, logging_steps=1, save_strategy="steps",
         save_steps=args.save_steps, save_total_limit=args.save_total_limit, report_to="none",
         remove_unused_columns=False, seed=args.seed, dataloader_num_workers=0)
-    trainer = Trainer(model=model, args=train_args, train_dataset=rows, data_collator=RFTCollator(processor, output_dir / "jpeg"))
+    class ResponseOnlyTrainer(Trainer):
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            labels = inputs.pop("labels")
+            causal = model.get_base_model() if hasattr(model, "get_base_model") else model
+            hidden = causal.model(**inputs).last_hidden_state
+            loss = response_only_loss(hidden, causal.lm_head, labels, num_items_in_batch, self.args.gradient_accumulation_steps)
+            return (loss, None) if return_outputs else loss
+
+    trainer_cls = Trainer if args.hf_loss else ResponseOnlyTrainer
+    trainer = trainer_cls(model=model, args=train_args, train_dataset=rows, data_collator=RFTCollator(processor, output_dir / "jpeg"))
 
     last = get_last_checkpoint(str(output_dir)) if args.resume else None
     print("이어서 학습:" if last else "처음부터 학습", last or "")
