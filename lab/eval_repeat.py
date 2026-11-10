@@ -116,6 +116,8 @@ def stop_server(proc):
 
 def scope(args):
     """run_mmmu_eval의 --subject/--all 인자를 Namespace 필드로 옮긴다."""
+    if getattr(args, "subjects", None):
+        return dict(subject=None, all=False, subjects=args.subjects, limit=args.limit)
     if args.subject:
         return dict(subject=args.subject, all=False, limit=args.limit)
     return dict(subject=None, all=True, limit=args.limit)
@@ -155,6 +157,8 @@ def main():
     parser.add_argument("--run-start", type=int, default=0, help="run 번호의 시작 (같은 폴더에 이어 붙일 때)")
     parser.add_argument("--seed0", type=int, default=R.SEED, help="run 0의 seed (동결 recipe = 42). run k의 seed = seed0 + k")
     parser.add_argument("--subject", choices=R.SUBJECTS, default=None, help="한 과목만 (생략하면 30과목 900문항)")
+    parser.add_argument("--subjects", type=lambda v: [s.strip() for s in v.split(",") if s.strip()], default=None,
+                        help="여러 과목만 (쉼표로 구분, 예: Electronics,Materials). 진단용 부분 평가이고 --subject와 같이 쓰지 않는다")
     parser.add_argument("--limit", type=int, default=None, help="과목당 앞 N문항 (스모크 테스트용. 보고용 수치로 쓸 수 없음)")
     parser.add_argument("--concurrency", type=int, default=32)
     parser.add_argument("--no-judge", action="store_true", help="judge 생략 (rule 파서 실패 문항은 오답 처리)")
@@ -176,7 +180,11 @@ def main():
         if missing:
             raise SystemExit(f"music4가 끝나지 않았다 (없는 run: {missing}). 먼저 music4를 완료하세요: {out_root}")
 
-    print(f"계획: {args.tag} | preset={args.preset} | 과목={args.subject or '전체 30과목'} | "
+    if args.subjects:
+        bad = [s for s in args.subjects if s not in R.SUBJECTS]
+        if bad or args.subject:
+            raise SystemExit(f"--subjects는 유효한 과목 이름만 받고 --subject와 같이 쓸 수 없다 (잘못된 값: {bad})")
+    print(f"계획: {args.tag} | preset={args.preset} | 과목={','.join(args.subjects) if args.subjects else (args.subject or '전체 30과목')} | "
           f"run {[k for k, _, _ in runs]} seed {[s for _, s, _ in runs]} | 결과 {out_root}")
     if args.dry_run:
         return

@@ -162,6 +162,9 @@ def load_subject(subject, data_root):
 
 
 def select_subjects(args):
+    subjects = getattr(args, "subjects", None)        # lab/eval_repeat.py --subjects (진단용 부분 평가). 기본 동작은 그대로
+    if subjects:
+        return list(subjects)
     return SUBJECTS if args.all else [args.subject]
 
 
