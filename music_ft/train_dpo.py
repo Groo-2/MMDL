@@ -74,7 +74,8 @@ def main():
     parser.add_argument("--grad-accum", type=int, default=16, help="최적화 한 번에 쓰는 쌍 수 (마이크로 배치 1)")
     parser.add_argument("--learning-rate", type=float, default=5e-6)
     parser.add_argument("--beta", type=float, default=0.1)
-    parser.add_argument("--sft-alpha", type=float, default=1.0, help="좋은 응답의 토큰당 NLL 가중치 (0이면 순수 DPO)")
+    parser.add_argument("--sft-alpha", type=float, default=0.1,
+                        help="좋은 응답의 토큰당 NLL 가중치 (0이면 순수 DPO). RFT(좋은 응답만 학습)가 루프를 늘렸으므로 작게 둔다")
     parser.add_argument("--lora-r", type=int, default=64)
     parser.add_argument("--lora-alpha", type=int, default=128)
     parser.add_argument("--save-steps", type=int, default=25)
