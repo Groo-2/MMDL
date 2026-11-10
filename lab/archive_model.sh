@@ -3,6 +3,7 @@
 #
 #   bash lab/archive_model.sh dpo_dv1
 #   ARCHIVE_DIR=/mnt/d/archive NO_MERGED=1 bash lab/archive_model.sh dpo_dv1      # 합친 모델(약 9GB)은 빼고 어댑터만
+#   SKIP_RUNS=run_01 bash lab/archive_model.sh dpo_dv1                            # 평가가 아직 진행 중인 run은 제외 (쉼표로 여러 개)
 #
 # 보관 폴더: $ARCHIVE_DIR(기본 ~/mmdl/archive)/<TAG>_<날짜>/
 #   adapter/         학습된 LoRA 어댑터 (adapter_model.safetensors, adapter_config.json)   <- 가장 중요하고 작다(약 0.5GB)
@@ -24,6 +25,8 @@ if [[ -e "$DEST" ]]; then
   exit 2
 fi
 mkdir -p "$DEST"/{adapter,results,data,logs,env}
+SKIP_RUNS="${SKIP_RUNS:-}"
+[[ -z "$SKIP_RUNS" ]] || echo "제외한 run(진행 중이라 이 보관본에 없다): $SKIP_RUNS" > "$DEST/env/skipped_runs.txt"
 
 copy() {   # copy <원본> <보관 폴더 안 하위 경로>: 있으면 복사, 없으면 알림
   if [[ -e "$1" ]]; then
@@ -50,6 +53,7 @@ if [[ -d "results/$TAG" ]]; then
   while IFS= read -r -d '' f; do
     rel="${f#results/$TAG/}"
     case "$rel" in checkpoint-*|jpeg/*|merged/*|final_lora/*) continue ;; esac
+    for skip in ${SKIP_RUNS//,/ }; do [[ "$rel" == "$skip"/* ]] && continue 2; done
     mkdir -p "$DEST/results/$TAG/$(dirname "$rel")"
     cp -a "$f" "$DEST/results/$TAG/$rel"
   done < <(find "results/$TAG" -type f -print0)
