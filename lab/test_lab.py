@@ -763,6 +763,76 @@ class ResponseOnlyLoss(unittest.TestCase):
         self.assertTrue(torch.allclose(g_ref, g_ours, atol=1e-6))
 
 
+class DpoData(unittest.TestCase):
+    """DPO 쌍 선택 규칙과 손실 수식 (모델 없이 확인 가능한 부분)."""
+
+    @staticmethod
+    def _s(spec):
+        return [{"text": t, "correct": c, "finish_reason": f} for t, c, f in spec]
+
+    def test_pair_selection(self):
+        import random
+
+        from build_dpo import select_pair
+
+        good = [(f"correct solution number {i} with detail\nAnswer: A", True, "stop") for i in range(3)]
+        wrong = [(f"wrong guess {i}\nAnswer: B", False, "stop") for i in range(3)]
+        trunc = [(f"perhaps maybe perhaps again {i}", False, "length") for i in range(3)]
+        samples = self._s(good + wrong + trunc)
+        kinds = []
+        for seed in range(400):
+            c, r, kind = select_pair(samples, random.Random(seed), p_truncated=0.6)
+            self.assertIn("correct solution", c)
+            self.assertNotIn("correct solution", r)                               # 좋은 응답과 나쁜 응답은 겹치지 않음
+            kinds.append(kind)
+        frac = kinds.count("truncated") / len(kinds)
+        self.assertTrue(0.5 < frac < 0.7, frac)                                   # 잘린 응답 우선 비율이 p_truncated 근처
+        only_trunc = select_pair(self._s(good + trunc), random.Random(0))
+        self.assertEqual(only_trunc[2], "truncated")
+        only_wrong = select_pair(self._s(good + wrong), random.Random(0))
+        self.assertEqual(only_wrong[2], "wrong")
+        self.assertIsNone(select_pair(self._s(wrong + trunc), random.Random(0)))                       # 좋은 응답이 없음 (0/8)
+        self.assertIsNone(select_pair(self._s([(g[0], True, "stop") for g in good] * 3), random.Random(0)))  # 8/8: 나쁜 응답 없음
+        self.assertIsNone(select_pair(self._s([("\n".join(["Let me recheck the calculation again."] * 6) + "\nAnswer: A", True, "stop")] + wrong), random.Random(0)))  # 반복 줄이 있으면 좋은 응답 불가
+
+    def test_build_pairs(self):
+        import random
+
+        from build_dpo import build
+
+        d = Path(tempfile.mkdtemp())
+        row = {"id": "q1", "question": "<image 1> Q?", "options": [], "question_type": "open", "answer": "2",
+               "image_paths": {"image_1": "images/a.png"}, "category": "Algebra"}
+        (d / "train.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        samples = [{"text": f"sol {i} text\nAnswer: 2", "correct": i < 3, "finish_reason": "stop"} for i in range(4)] \
+            + [{"text": f"spiral {i}", "correct": False, "finish_reason": "length"} for i in range(4)]
+        (d / "screen_samples.jsonl").write_text(json.dumps({"id": "q1", "samples": samples}) + "\n", encoding="utf-8")
+        out, stats = build(("dv", str(d), "train.jsonl", None), random.Random(0), 1.0, 1, 7, 2)
+        self.assertEqual((len(out), stats["prompts_used"]), (2, 1))
+        self.assertTrue(all(p["rejected_kind"] == "truncated" and p["chosen"] != p["rejected"] for p in out))
+
+    def test_dpo_loss_math(self):
+        try:
+            import torch
+        except Exception as e:  # noqa: BLE001
+            self.skipTest(f"torch를 쓸 수 없다: {type(e).__name__}")
+        from train_dpo import dpo_loss
+
+        t = lambda v: torch.tensor(float(v), requires_grad=True)
+        lc, lr_, rc, rr = t(-10), t(-30), torch.tensor(-10.0), torch.tensor(-30.0)
+        loss, margin, ok = dpo_loss(lc, lr_, rc, rr, torch.tensor(0.0), beta=0.1, sft_alpha=0.0)
+        self.assertAlmostEqual(loss.item(), 0.6931, places=3)                    # 정책 = 기준이면 log 2, 마진 0
+        self.assertEqual(margin.item(), 0.0)
+        loss.backward()
+        self.assertLess(lc.grad.item(), 0)                                        # 좋은 응답 확률을 올리면 손실이 줄어듦
+        self.assertGreater(lr_.grad.item(), 0)                                    # 나쁜 응답 확률을 올리면 손실이 늘어남
+        better, _, ok2 = dpo_loss(torch.tensor(-8.0), torch.tensor(-35.0), rc, rr, torch.tensor(0.0), beta=0.1, sft_alpha=0.0)
+        self.assertLess(better.item(), loss.item())
+        self.assertEqual(ok2.item(), 1.0)
+        with_sft, _, _ = dpo_loss(torch.tensor(-10.0), torch.tensor(-30.0), rc, rr, torch.tensor(0.5), beta=0.1, sft_alpha=1.0)
+        self.assertAlmostEqual(with_sft.item(), 0.6931 + 0.5, places=3)           # 보조 NLL 항이 더해짐
+
+
 class MissingImageTag(unittest.TestCase):
     """질문에 '<image 1> '이 없으면 이미지가 조용히 빠진다. 학습/선별/평가 코드는 이를 오류로 알려야 한다."""
 
