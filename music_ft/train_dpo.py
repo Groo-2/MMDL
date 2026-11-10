@@ -142,11 +142,17 @@ def main():
             with torch.no_grad(), model.disable_adapter():           # 기준 = 어댑터를 끈 base
                 ref_c, _ = logp(c)
                 ref_r, _ = logp(r)
+            torch.cuda.empty_cache()                                 # 기준 계산의 중간 메모리를 돌려준 뒤 응답 두 개의 그래프를 만든다
             lp_c, n_c = logp(c)
             lp_r, _ = logp(r)
             loss, margin, correct = dpo_loss(lp_c, lp_r, ref_c, ref_r, -lp_c / n_c, args.beta, args.sft_alpha)
             self._acc.append(float(correct)); self._margin.append(float(margin))
             return (loss, None) if return_outputs else loss          # Trainer가 누적 횟수로 나눈다 (RFT와 같은 경로)
+
+        def training_step(self, *a, **k):
+            out = super().training_step(*a, **k)
+            torch.cuda.empty_cache()                                 # 24GB에서 예약 메모리가 한계로 부풀지 않게 매 쌍마다 정리
+            return out
 
         def log(self, logs, *a, **k):
             if self._acc:
