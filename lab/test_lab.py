@@ -833,6 +833,24 @@ class DpoData(unittest.TestCase):
         self.assertAlmostEqual(with_sft.item(), 0.6931 + 0.5, places=3)           # 보조 NLL 항이 더해짐
 
 
+class RescreenOptions(unittest.TestCase):
+    """SSMR 적격 문항만 다시 풀어 응답을 저장할 때, 이전 결과/파일을 덮어쓰지 않는지."""
+
+    def test_eligible_ids(self):
+        from select_ssmr import eligible_ids
+
+        d = Path(tempfile.mkdtemp())
+        p = d / "screen_results.jsonl"
+        p.write_text("\n".join(json.dumps({"id": f"q{k}", "category": "Beat", "k": k, "n": 8}) for k in range(9)) + "\n", encoding="utf-8")
+        self.assertEqual(eligible_ids(p), {f"q{k}" for k in range(1, 8)})              # 0/8과 8/8 제외
+        self.assertEqual(eligible_ids(p, lo=2, hi=4), {"q2", "q3", "q4"})
+
+    def test_cli_has_protection_flags(self):
+        out = subprocess.run([sys.executable, str(REPO / "music_ft" / "select_ssmr.py"), "--help"], capture_output=True, text=True).stdout
+        for flag in ("--only-eligible-from", "--screen-file-name", "--samples-only", "--save-samples"):
+            self.assertIn(flag, out)
+
+
 class MissingImageTag(unittest.TestCase):
     """질문에 '<image 1> '이 없으면 이미지가 조용히 빠진다. 학습/선별/평가 코드는 이를 오류로 알려야 한다."""
 

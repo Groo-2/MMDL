@@ -112,6 +112,17 @@ def select_subset(screened, per_category, lo=1 / 8, hi=7 / 8, seed=SEED):
 # 통과율 측정 (vLLM 서버 필요)
 # ------------------------------------------------------------
 
+def eligible_ids(screen_results_path, lo=1, hi=None):
+    """이전 선별 결과(screen_results.jsonl)에서 맞힌 횟수 k가 [lo, hi]인 문항 id (hi 기본 n-1). RFT/DPO용 응답을 다시 만들 때 쓴다."""
+    ids = set()
+    with Path(screen_results_path).open(encoding="utf-8") as f:
+        for line in f:
+            s = json.loads(line)
+            if lo <= s["k"] <= (hi if hi is not None else s["n"] - 1):
+                ids.add(s["id"])
+    return ids
+
+
 def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, screen_file, samples_file=None):
     done = {}
     if screen_file.exists():
@@ -170,6 +181,12 @@ def main():
     parser.add_argument("--limit", type=int, default=None, help="디버그용: 후보 앞 N개만")
     parser.add_argument("--save-samples", action="store_true",
                         help="문항별 응답 텍스트와 정오를 screen_samples.jsonl에 저장한다 (RFT 학습 데이터용)")
+    parser.add_argument("--only-eligible-from", default=None,
+                        help="이전 screen_results.jsonl 경로: 거기서 통과율 1/8~7/8이던 문항만 다시 푼다 (응답을 저장하려고 다시 풀 때)")
+    parser.add_argument("--screen-file-name", default="screen_results.jsonl",
+                        help="이번 측정 결과를 쓸 파일 이름 (이전 결과를 덮어쓰거나 이어받지 않으려면 다른 이름)")
+    parser.add_argument("--samples-only", action="store_true",
+                        help="응답만 저장하고 끝낸다. train_subset.jsonl과 select_report.json을 쓰지 않는다 (기존 파일 보호)")
     parser.add_argument("--max-images", type=int, default=None,
                         help="이미지가 N장을 넘는 문항은 후보에서 제외 (24GB 학습은 1: 5장 문항은 스텝 78분+메모리 한계)")
     args = parser.parse_args()
@@ -181,11 +198,15 @@ def main():
         rows = [r for r in rows if len(r["image_paths"]) <= args.max_images]
         print(f"[max-images {args.max_images}] {before} → {len(rows)}문항:", dict(Counter(r["category"] for r in rows)))
     pool = build_pool(rows, args.pool_size)
+    if args.only_eligible_from:
+        keep = eligible_ids(args.only_eligible_from)
+        pool = [r for r in rows if r["id"] in keep]
+        print(f"[only-eligible-from] 이전 통과율 1~7/8 문항 {len(keep)}개 중 현재 후보에 있는 {len(pool)}개만 다시 푼다")
     if args.limit:
         pool = pool[: args.limit]
     print(f"후보 풀 {len(pool)}개:", dict(Counter(r["category"] for r in pool)))
 
-    screen_file = data_dir / "screen_results.jsonl"
+    screen_file = data_dir / args.screen_file_name
     if args.select_only:
         screened = [json.loads(l) for l in screen_file.open(encoding="utf-8")]
         pool_ids = {r["id"] for r in pool}
@@ -208,6 +229,10 @@ def main():
         finally:
             if server is not None:
                 stop_server(server)
+
+    if args.samples_only:
+        print(f"\n응답 저장 완료: {len(screened)}문항 -> {data_dir / 'screen_samples.jsonl'} (train_subset.jsonl과 select_report.json은 쓰지 않았다)")
+        return
 
     ids, report = select_subset(screened, args.per_category)
     by_id = {r["id"]: r for r in pool}
