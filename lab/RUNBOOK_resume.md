@@ -21,6 +21,20 @@ python lab/status.py                                  # 어디까지 저장됐�
 | 평가 추론(`eval_repeat.py`, `eval_holdout.py`) | 요청 1개마다 | 진행 중이던 요청(동시 32개, 32,768토큰까지 가는 루프는 최대 약 30분) | 같은 명령 |
 | 평가 judge | 요청 1개마다 | 진행 중이던 요청 | 같은 명령 |
 
+## 평가 대기열 (여러 모델을 순서대로)
+평가가 모델마다 10시간 안팎이라, 한 번 시작해 두고 끊기면 같은 명령 한 줄로 이어 가도록 `lab/eval_queue.py`를 쓴다.
+```bash
+conda activate mmdl130 && cd ~/MMDL_ssmr
+python lab/eval_queue.py \
+  base_130=Qwen/Qwen3-VL-4B-Instruct@ebb281ec70b05090aa6165b016eac8ec08e71b17:2 \
+  mx_grpo_team=results/mx_grpo_team/merged:2 \
+  dpo_dv1_re=results/dpo_dv1_re/merged:2 2>&1 | tee -a logs/eval_queue.log
+```
+- 항목은 `태그=모델[@리비전]:run수`이고, 결과는 `results/<태그>/run_00, run_01`에 쌓인다(seed는 42 + 번호).
+- run 폴더에 `summary.json`이 있으면 끝난 run으로 보고, 항목의 run이 모두 끝났으면 서버를 띄우지 않고 건너뛴다. 하나라도 남았으면 `eval_repeat.py`가 응답 단위로 이어받는다.
+- 어느 항목이 실패하면 그 뒤 항목은 실행하지 않고 멈춘다. 서버가 남아 있으면 `pkill -f "vllm serve"`로 정리하고 원인을 해결한 뒤 **같은 명령을 다시** 실행한다.
+- `--dry-run`을 붙이면 무엇이 남았는지만 출력한다.
+
 ## 체크포인트 간격 (학습)
 권장: `--save-steps 20 --save-total-limit 3`
 

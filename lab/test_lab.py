@@ -1093,6 +1093,52 @@ class InterruptionRecovery(unittest.TestCase):
         finally:
             S.build_content, S.chat, S.score_row, S.as_completed = orig
 
+    def test_eval_queue_parse_and_skip(self):
+        import eval_queue as Q
+
+        self.assertEqual(Q.parse_spec("base_130=Qwen/Qwen3-VL-4B-Instruct@ebb281e:1"), ("base_130", "Qwen/Qwen3-VL-4B-Instruct", "ebb281e", 1))
+        self.assertEqual(Q.parse_spec("mx=results/mx/merged:2"), ("mx", "results/mx/merged", None, 2))
+        self.assertEqual(Q.parse_spec("m=results/m/merged"), ("m", "results/m/merged", None, 1))      # run 수를 생략하면 1
+        for bad in ("nolabel", "=x:1", "t=:1", "t=x:0"):
+            with self.assertRaises(ValueError):
+                Q.parse_spec(bad)
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "a" / "run_00").mkdir(parents=True)
+            (d / "a" / "run_00" / "summary.json").write_text("{}")
+            (d / "a" / "run_01").mkdir()                                      # 폴더만 있고 summary.json이 없으면 끝나지 않은 것
+            self.assertEqual(Q.run_status(d, "a", 2), [(0, True), (1, False)])
+            self.assertEqual(Q.run_status(d, "none", 1), [(0, False)])
+
+    def test_eval_queue_command_and_dry_run(self):
+        import eval_queue as Q
+
+        cmd = Q.build_command("t", "Qwen/Qwen3-VL-4B-Instruct", "abc", 2, python="py", repo="/r")
+        self.assertEqual(cmd, ["py", "/r/lab/eval_repeat.py", "--tag", "t", "--model", "Qwen/Qwen3-VL-4B-Instruct", "--runs", "2", "--revision", "abc"])
+        self.assertNotIn("--revision", Q.build_command("t", "m", None, 1, python="py", repo="/r"))
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "done" / "run_00").mkdir(parents=True)
+            (d / "done" / "run_00" / "summary.json").write_text("{}")
+            rc = Q.main(["done=hf/model:1", "todo=hf/model:2", "--results", str(d), "--dry-run"])
+            self.assertEqual(rc, 0)                                          # --dry-run은 아무것도 실행하지 않는다
+
+    def test_eval_queue_merge_marker_warning(self):
+        import eval_queue as Q
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            self.assertIsNone(Q.merge_marker_warning("Qwen/Qwen3-VL-4B-Instruct", repo=d))      # HF 이름은 검사하지 않는다
+            m = d / "m1" / "merged"
+            m.mkdir(parents=True)
+            self.assertIn("가중치", Q.merge_marker_warning("m1/merged", repo=d))                  # 비어 있음
+            (m / "model.safetensors").write_bytes(b"x")
+            self.assertIn(".merge_ok", Q.merge_marker_warning("m1/merged", repo=d))               # 표시 없음
+            (m / ".merge_ok").write_text("{}")
+            self.assertIsNone(Q.merge_marker_warning("m1/merged", repo=d))
+
     def test_status_reports_progress(self):
         import status as ST
 
