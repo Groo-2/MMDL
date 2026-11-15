@@ -1053,6 +1053,46 @@ class InterruptionRecovery(unittest.TestCase):
         finally:
             S.build_content, S.chat, S.score_row = orig
 
+    def test_screening_ctrl_c_cancels_pending_work(self):
+        # Ctrl+c 때 시작하지 않은 문항을 취소해야 한다 (안 그러면 큐에 남은 문항을 전부 풀 때까지 종료되지 않고 결과도 저장되지 않는다)
+        import time
+
+        import select_ssmr as S
+
+        rows = [{"id": f"q{i}", "category": "Beat"} for i in range(12)]
+        calls = []
+
+        def slow_chat(api, model, content, n, max_tokens, seed):
+            calls.append(1)
+            time.sleep(0.15)
+            return [("Answer: A", "stop")] * n
+
+        orig = (S.build_content, S.chat, S.score_row, S.as_completed)
+        S.build_content = lambda row, data_dir: "content"
+        S.chat = slow_chat
+        S.score_row = lambda text, row: True
+
+        def interrupted(futures):
+            it = iter(S.__dict__["_orig_as_completed"](futures))
+            yield next(it)                       # 첫 문항이 끝난 직후 Ctrl+c
+            raise KeyboardInterrupt
+
+        S._orig_as_completed = orig[3]
+        S.as_completed = interrupted
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                d = Path(d)
+                started = time.time()
+                with self.assertRaises(KeyboardInterrupt):
+                    S.screen_rows(rows, d, "http://x", "m", 8, 16, 2, d / "screen_results.jsonl", samples_file=d / "screen_samples.jsonl")
+                self.assertLess(len(calls), len(rows))                 # 12개를 모두 풀지 않았다
+                self.assertLess(time.time() - started, 1.5)            # 12개를 다 풀면 약 0.9초 이상 걸리는 구조에서 바로 끝났다
+                for f in (d / "screen_results.jsonl", d / "screen_samples.jsonl"):
+                    for line in f.read_text().splitlines():
+                        json.loads(line)                                # 저장된 줄은 온전하다
+        finally:
+            S.build_content, S.chat, S.score_row, S.as_completed = orig
+
     def test_status_reports_progress(self):
         import status as ST
 

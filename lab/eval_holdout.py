@@ -72,17 +72,24 @@ def run_seed(rows, data_dir, api_base, model_name, seed, max_new_tokens, concurr
 
     with pred_file.open("a", encoding="utf-8") as fp, ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = {pool.submit(one, r): r for r in todo}
-        for i, fut in enumerate(as_completed(futures), 1):
-            try:
-                res = fut.result()
-            except Exception as e:  # noqa: BLE001
-                print(f"[holdout] {futures[fut]['id']} 실패: {e!r} (같은 커맨드를 다시 실행하면 실패한 문항만 재시도)", flush=True)
-                continue
-            done[res["id"]] = res
-            fp.write(json.dumps(res, ensure_ascii=False) + "\n")
-            fp.flush()
-            if i % 50 == 0:
-                print(f"[holdout seed={seed}] {i}/{len(todo)}", flush=True)
+        try:
+            for i, fut in enumerate(as_completed(futures), 1):
+                try:
+                    res = fut.result()
+                except Exception as e:  # noqa: BLE001
+                    print(f"[holdout] {futures[fut]['id']} 실패: {e!r} (같은 커맨드를 다시 실행하면 실패한 문항만 재시도)", flush=True)
+                    continue
+                done[res["id"]] = res
+                fp.write(json.dumps(res, ensure_ascii=False) + "\n")
+                fp.flush()
+                if i % 50 == 0:
+                    print(f"[holdout seed={seed}] {i}/{len(todo)}", flush=True)
+        except KeyboardInterrupt:
+            # Ctrl+c: 시작하지 않은 문항을 취소한다 (안 그러면 큐에 남은 문항을 전부 풀고 결과는 저장되지 않는다)
+            print("\n[holdout] 중단 요청: 시작하지 않은 문항을 취소하고 실행 중인 문항이 끝나면 종료합니다", flush=True)
+            for f in futures:
+                f.cancel()
+            raise
 
     records = [done[r["id"]] for r in rows if r["id"] in done]
     summary = summarize(records)

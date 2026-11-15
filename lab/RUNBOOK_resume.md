@@ -47,4 +47,11 @@ python music_ft/train_dpo.py --data data/dpo/<쌍 파일>.jsonl --output-dir res
 
 ## 수업 직전에 안전하게 멈추려면
 - 학습: 체크포인트가 저장된 직후(20스텝 배수 근처)에 멈추면 잃는 것이 없다. `python lab/status.py`의 "최근 체크포인트 step"과 로그의 현재 스텝을 비교한다.
-- 평가와 선별: `Ctrl+c`로 멈춰도 된다. 진행 중이던 요청만 다시 풀린다.
+- **선별(`select_ssmr.py`)과 홀드아웃 평가(`eval_holdout.py`)**: `Ctrl+c`로 멈춘다. 시작하지 않은 문항은 취소하고 실행 중이던 문항(동시 요청 수만큼)이 끝나면 종료한다. 몇 분 걸릴 수 있다.
+- **전체 평가(`eval_repeat.py`)는 `Ctrl+c`가 바로 멈추지 않는다.** 평가 본체(`mmmu_eval/`, 동결 코드)가 남은 문항을 큐에 모두 넣고 끝까지 처리하며,
+  `Ctrl+c` 뒤에 끝나는 응답은 **저장되지 않는다**(2026-11-15 선별 코드에서 확인한 것과 같은 구조라서 같은 문제가 있을 것으로 본다. 평가에서는 아직 확인하지 않았다). 급하면 프로세스를 끈다.
+```bash
+pkill -f eval_repeat.py; pkill -f "vllm serve"; sleep 15; pgrep -af "eval_repeat|vllm serve" || echo "모두 종료"
+```
+  저장은 응답마다 하므로 끈 시점까지의 결과는 남고, 진행 중이던 요청만 다시 풀린다.
+- 위 `pkill` 뒤에 `vllm serve`가 남아 있으면 GPU 메모리를 계속 잡는다. 꼭 같이 끄고 `nvidia-smi`로 메모리가 비었는지 확인한다.

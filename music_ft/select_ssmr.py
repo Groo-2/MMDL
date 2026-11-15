@@ -150,23 +150,31 @@ def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, scr
     sfp = samples_file.open("a", encoding="utf-8") if samples_file else None     # RFT용: 문항별 8개 응답과 정오를 따로 저장
     with screen_file.open("a", encoding="utf-8") as fp, ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = {pool.submit(one, r): r for r in todo}
-        for i, fut in enumerate(as_completed(futures), 1):
-            try:
-                res = fut.result()
-            except Exception as e:  # noqa: BLE001
-                print(f"[screen] {futures[fut]['id']} 실패: {e!r}", flush=True)
-                continue
-            samples = res.pop("_samples", None)
-            done[res["id"]] = res
-            # 응답 샘플을 먼저 쓰고 통과율(=이 문항이 끝났다는 표시)을 나중에 쓴다. 그 사이에 죽어도 문항이 "끝난 것"으로 남아 샘플이 영영 없어지는 일이 없다
-            # (대신 다시 풀면 샘플이 중복될 수 있는데, 읽는 쪽은 같은 id의 마지막 줄을 쓴다).
-            if sfp is not None and samples:
-                sfp.write(json.dumps({"id": res["id"], "samples": samples}, ensure_ascii=False) + "\n")
-                sfp.flush()
-            fp.write(json.dumps(res, ensure_ascii=False) + "\n")
-            fp.flush()
-            if i % 100 == 0:
-                print(f"[screen] {i}/{len(todo)}", flush=True)
+        try:
+            for i, fut in enumerate(as_completed(futures), 1):
+                try:
+                    res = fut.result()
+                except Exception as e:  # noqa: BLE001
+                    print(f"[screen] {futures[fut]['id']} 실패: {e!r}", flush=True)
+                    continue
+                samples = res.pop("_samples", None)
+                done[res["id"]] = res
+                # 응답 샘플을 먼저 쓰고 통과율(=이 문항이 끝났다는 표시)을 나중에 쓴다. 그 사이에 죽어도 문항이 "끝난 것"으로 남아 샘플이 영영 없어지는 일이 없다
+                # (대신 다시 풀면 샘플이 중복될 수 있는데, 읽는 쪽은 같은 id의 마지막 줄을 쓴다).
+                if sfp is not None and samples:
+                    sfp.write(json.dumps({"id": res["id"], "samples": samples}, ensure_ascii=False) + "\n")
+                    sfp.flush()
+                fp.write(json.dumps(res, ensure_ascii=False) + "\n")
+                fp.flush()
+                if i % 100 == 0:
+                    print(f"[screen] {i}/{len(todo)}", flush=True)
+        except KeyboardInterrupt:
+            # Ctrl+c: 아직 시작하지 않은 작업을 취소한다. 안 그러면 with 블록이 큐에 남은 문항을 전부 풀 때까지 끝나지 않고, 그 결과는 저장되지도 않는다
+            # (2026-11-15 확인). 실행 중이던 문항(동시 요청 수만큼)만 끝나길 기다린 뒤 종료한다. 저장된 문항은 다음 실행에서 이어진다.
+            print("\n[screen] 중단 요청: 시작하지 않은 문항을 취소하고 실행 중인 문항이 끝나면 종료합니다 (저장된 문항은 다음 실행에서 이어집니다)", flush=True)
+            for f in futures:
+                f.cancel()
+            raise
     if sfp is not None:
         sfp.close()
     return [done[r["id"]] for r in rows if r["id"] in done]
