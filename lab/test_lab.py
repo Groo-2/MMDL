@@ -958,5 +958,175 @@ class GrpoConfigOptions(unittest.TestCase):
             shutil.rmtree(REPO / "results" / "grpo_done_unittest", ignore_errors=True)
 
 
+class InterruptionRecovery(unittest.TestCase):
+    """수업 시간 원격 종료나 강제 종료로 줄을 쓰다 죽어도 이어받을 수 있는지."""
+
+    def _write(self, d, name, content):
+        p = Path(d) / name
+        p.write_bytes(content)
+        return p
+
+    def test_partial_last_line_is_truncated(self):
+        from jsonl_repair import repair_jsonl
+
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "predictions.jsonl", b'{"id": "a"}\n{"id": "b"}\n{"id": "c", "raw_out')
+            dropped = repair_jsonl(p)
+            self.assertGreater(dropped, 0)
+            self.assertEqual(p.read_bytes(), b'{"id": "a"}\n{"id": "b"}\n')
+
+    def test_complete_last_line_without_newline_is_kept(self):
+        from jsonl_repair import repair_jsonl
+
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "predictions.jsonl", b'{"id": "a"}\n{"id": "b"}')
+            self.assertEqual(repair_jsonl(p), 0)
+            self.assertEqual(p.read_bytes(), b'{"id": "a"}\n{"id": "b"}\n')      # 기록을 지우지 않고 줄바꿈만 붙인다
+
+    def test_clean_empty_and_missing_files_untouched(self):
+        from jsonl_repair import repair_jsonl
+
+        with tempfile.TemporaryDirectory() as d:
+            clean = self._write(d, "a.jsonl", b'{"id": 1}\n{"id": 2}\n')
+            self.assertEqual(repair_jsonl(clean), 0)
+            self.assertEqual(clean.read_bytes(), b'{"id": 1}\n{"id": 2}\n')
+            self.assertEqual(repair_jsonl(self._write(d, "empty.jsonl", b"")), 0)
+            self.assertEqual(repair_jsonl(Path(d) / "missing.jsonl"), 0)
+
+    def test_zero_filled_tail_and_corrupt_last_complete_line(self):
+        from jsonl_repair import repair_jsonl
+
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "a.jsonl", b'{"id": 1}\n' + b"\0" * 64)           # 전원이 나가 0으로 채워진 꼬리
+            self.assertGreater(repair_jsonl(p), 0)
+            self.assertEqual(p.read_bytes(), b'{"id": 1}\n')
+            q = self._write(d, "b.jsonl", b'{"id": 1}\n{"id": 2, "x"\n')         # 줄바꿈까지 있지만 내용이 깨진 마지막 줄
+            self.assertGreater(repair_jsonl(q), 0)
+            self.assertEqual(q.read_bytes(), b'{"id": 1}\n')
+
+    def test_append_after_repair_stays_valid(self):
+        from jsonl_repair import repair_jsonl
+
+        with tempfile.TemporaryDirectory() as d:
+            p = self._write(d, "predictions.jsonl", b'{"id": "a"}\n{"id": "b", "raw')
+            repair_jsonl(p)
+            with p.open("a", encoding="utf-8") as f:                              # 이어받기: 반쪽 뒤에 이어 붙으면 두 레코드가 함께 깨진다
+                f.write(json.dumps({"id": "b"}) + "\n")
+            rows = [json.loads(line) for line in p.read_text().splitlines()]
+            self.assertEqual([r["id"] for r in rows], ["a", "b"])
+
+    def test_repair_tree_finds_known_files_only(self):
+        from jsonl_repair import repair_tree
+
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "run_00").mkdir()
+            self._write(Path(d) / "run_00", "predictions.jsonl", b'{"id": 1}\n{"id"')
+            self._write(Path(d) / "run_00", "judge_results.jsonl", b'{"id": 1}\n')
+            self._write(Path(d), "notes.jsonl", b'{"id"')                         # 이름이 다르면 건드리지 않는다
+            fixed = repair_tree(d)
+            self.assertEqual(len(fixed), 1)
+            self.assertTrue(next(iter(fixed)).endswith("predictions.jsonl"))
+            self.assertEqual((Path(d) / "notes.jsonl").read_bytes(), b'{"id"')
+
+    def test_screening_resumes_after_interruption(self):
+        import select_ssmr as S
+
+        rows = [{"id": f"q{i}", "category": "Beat"} for i in range(4)]
+        calls = []
+        orig = (S.build_content, S.chat, S.score_row)
+        S.build_content = lambda row, data_dir: "content"
+        S.chat = lambda api, model, content, n, max_tokens, seed: (calls.append(1) or [("Answer: A", "stop")] * n)
+        S.score_row = lambda text, row: True
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                d = Path(d)
+                screen, samples = d / "screen_results.jsonl", d / "screen_samples.jsonl"
+                ok = json.dumps({"id": "q0", "category": "Beat", "k": 8, "n": 8, "truncated": 0})
+                screen.write_text(ok + "\n" + '{"id": "q1", "categ')                    # 두 번째 줄을 쓰다 죽음
+                samples.write_text(json.dumps({"id": "q0", "samples": []}) + "\n" + '{"id": "q1", "sam')
+                out = S.screen_rows(rows, d, "http://x", "m", 8, 16, 2, screen, samples_file=samples)
+                self.assertEqual({r["id"] for r in out}, {"q0", "q1", "q2", "q3"})
+                self.assertEqual(len(calls), 3)                                      # q0은 건너뛰고 나머지 3개만 다시 풂
+                for f in (screen, samples):
+                    for line in f.read_text().splitlines():
+                        json.loads(line)                                             # 모든 줄이 온전해야 한다
+        finally:
+            S.build_content, S.chat, S.score_row = orig
+
+    def test_status_reports_progress(self):
+        import status as ST
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "data" / "mx").mkdir(parents=True)
+            (d / "data" / "mx" / "screen_results.jsonl").write_text(
+                json.dumps({"id": "a", "category": "PitchReading", "k": 2, "n": 8}) + "\n"
+                + json.dumps({"id": "b", "category": "PitchReading", "k": 0, "n": 8}) + "\n")
+            (d / "data" / "mx" / "screen_samples.jsonl").write_text(json.dumps({"id": "a", "samples": []}) + "\n")
+            sc = "\n".join(ST.screening(d / "data"))
+            self.assertIn("2문항 완료", sc)
+            self.assertIn("쌍 가능(1~7/8) 1", sc)
+            self.assertIn("응답 샘플이 없는 문항 1개", sc)                              # 통과율만 있고 샘플이 없는 문항을 알려 준다
+
+            r = d / "results" / "m1"
+            (r / "checkpoint-40").mkdir(parents=True)
+            (r / "checkpoint-40" / "trainer_state.json").write_text(json.dumps({"max_steps": 210}))
+            tr = "\n".join(ST.training(d / "results"))
+            self.assertIn("step 40/210", tr)
+            self.assertIn("--resume", tr)                                           # final_lora가 없으면 이어하라고 안내한다
+
+            (r / "run_00").mkdir()
+            (r / "run_00" / "predictions.jsonl").write_text(json.dumps({"id": "x", "finish_reason": "stop"}) + "\n" + '{"id"')
+            ev = "\n".join(ST.evaluating(d / "results"))
+            self.assertIn("예측 1문항", ev)
+            self.assertIn("진행 중이거나 중단됨", ev)
+            self.assertIn("깨진 줄 1", ev)
+
+    def test_merge_marker_constant(self):
+        import merge_lora
+
+        self.assertEqual(merge_lora.MERGE_OK, ".merge_ok")
+
+    def test_incomplete_checkpoint_is_skipped_on_resume(self):
+        from ckpt_utils import quarantine_incomplete_checkpoints
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for n, complete in ((20, True), (40, True), (60, False)):             # 60은 저장 도중에 죽어서 trainer_state.json이 없다
+                (d / f"checkpoint-{n}").mkdir()
+                (d / f"checkpoint-{n}" / "adapter_model.safetensors").write_bytes(b"x")
+                if complete:
+                    (d / f"checkpoint-{n}" / "trainer_state.json").write_text("{}")
+            (d / "final_lora").mkdir()
+            moved = quarantine_incomplete_checkpoints(d)
+            self.assertEqual(moved, ["checkpoint-60"])
+            self.assertTrue((d / "incomplete-checkpoint-60").exists())            # 지우지 않고 이름만 바꾼다
+            self.assertFalse((d / "checkpoint-60").exists())
+            self.assertTrue((d / "checkpoint-40").exists() and (d / "checkpoint-20").exists())
+            self.assertTrue((d / "final_lora").exists())                          # 다른 폴더는 건드리지 않는다
+            self.assertEqual(quarantine_incomplete_checkpoints(d), [])            # 두 번째 호출은 할 일이 없다
+            self.assertEqual(quarantine_incomplete_checkpoints(d / "missing"), [])
+
+    def test_get_last_checkpoint_rule_ignores_renamed_folder(self):
+        # transformers의 get_last_checkpoint는 ^checkpoint-(\d+)$ 규칙이라 incomplete- 접두어가 붙은 폴더는 고르지 않는다
+        import re
+
+        rule = re.compile(r"^checkpoint\-(\d+)$")
+        self.assertIsNone(rule.search("incomplete-checkpoint-60"))
+        self.assertIsNotNone(rule.search("checkpoint-60"))
+
+    def test_status_flags_incomplete_checkpoint(self):
+        import status as ST
+
+        with tempfile.TemporaryDirectory() as d:
+            r = Path(d) / "m1"
+            (r / "checkpoint-20").mkdir(parents=True)
+            (r / "checkpoint-20" / "trainer_state.json").write_text(json.dumps({"max_steps": 210}))
+            (r / "checkpoint-40").mkdir()                                         # trainer_state.json 없음 = 저장 중에 끊김
+            out = "\n".join(ST.training(Path(d)))
+            self.assertIn("step 20/210", out)                                     # 온전한 체크포인트만 진행으로 센다
+            self.assertIn("저장 중 끊긴 체크포인트 1개", out)
+
+
 if __name__ == "__main__":
     unittest.main()

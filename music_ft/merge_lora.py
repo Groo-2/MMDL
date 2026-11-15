@@ -6,10 +6,12 @@
 """
 
 import argparse
+import json
 from pathlib import Path
 
 MODEL_REPO = "Qwen/Qwen3-VL-4B-Instruct"
 MODEL_REVISION = "ebb281ec70b05090aa6165b016eac8ec08e71b17"
+MERGE_OK = ".merge_ok"      # 합치기와 저장이 끝까지 성공했을 때만 남기는 표시 (lab/status.py가 확인)
 
 
 def merge(lora, out, base=MODEL_REPO, revision=MODEL_REVISION, dtype=None, processor_repo=None, low_memory=False):
@@ -52,8 +54,15 @@ def merge(lora, out, base=MODEL_REPO, revision=MODEL_REVISION, dtype=None, proce
 
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    (out / MERGE_OK).unlink(missing_ok=True)      # 이전 합치기가 있었더라도 이번 저장이 끝날 때까지는 "정상"이 아니다
     model.save_pretrained(out, safe_serialization=True)
     AutoProcessor.from_pretrained(processor_repo or base, **kwargs).save_pretrained(out)
+    # 저장이 끝까지 성공했을 때만 표시를 남긴다 (도중에 죽으면 반쪽짜리 폴더가 남는데, 표시가 없으면 그것을 쓰지 않는다).
+    import hashlib
+
+    adapter = Path(lora) / "adapter_model.safetensors"
+    sha = hashlib.sha256(adapter.read_bytes()).hexdigest() if adapter.exists() else None
+    (out / MERGE_OK).write_text(json.dumps({"lora": str(lora), "adapter_sha256": sha, "changed_weights": n_changed}))
     return model
 
 

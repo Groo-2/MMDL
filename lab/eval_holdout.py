@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ssmr_client import build_content, chat, load_rows, score_one  # noqa: E402
 from envinfo import snapshot  # noqa: E402
+from jsonl_repair import repair_jsonl  # noqa: E402
 
 # 동결 평가 recipe (mmmu_eval/run_mmmu_eval.py와 같은 값)
 TEMPERATURE, TOP_P, TOP_K, PRESENCE_PENALTY, REPETITION_PENALTY = 0.7, 0.8, 20, 1.5, 1.0
@@ -51,6 +52,9 @@ def run_seed(rows, data_dir, api_base, model_name, seed, max_new_tokens, concurr
     out_dir.mkdir(parents=True, exist_ok=True)
     pred_file = out_dir / "predictions.jsonl"
     done = {}
+    dropped = repair_jsonl(pred_file)          # 이전 실행이 줄을 쓰다 죽었다면 반쪽 마지막 줄을 잘라 낸다
+    if dropped:
+        print(f"[repair] 반쪽 마지막 줄을 잘라 냈다 ({dropped}바이트): {pred_file}", flush=True)
     if pred_file.exists():
         for line in pred_file.open(encoding="utf-8"):
             r = json.loads(line)

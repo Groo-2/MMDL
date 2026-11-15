@@ -22,8 +22,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "lab"))
 
 from ssmr_client import CATEGORIES, build_content, chat, load_rows, score_row  # noqa: E402
+from jsonl_repair import repair_jsonl  # noqa: E402
 
 SEED = 42
 
@@ -125,6 +127,10 @@ def eligible_ids(screen_results_path, lo=1, hi=None):
 
 def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, screen_file, samples_file=None):
     done = {}
+    # 이전 실행이 줄을 쓰다 죽었다면(수업 시간 원격 종료, 강제 종료) 반쪽 마지막 줄을 잘라 낸다. 안 그러면 읽을 때 멈추거나 다음 줄이 깨진다.
+    for f in (screen_file, samples_file):
+        if f is not None and (dropped := repair_jsonl(f)):
+            print(f"[repair] 반쪽 마지막 줄을 잘라 냈다 ({dropped}바이트): {f}", flush=True)
     if screen_file.exists():
         for line in screen_file.open(encoding="utf-8"):
             r = json.loads(line)
@@ -152,11 +158,13 @@ def screen_rows(rows, data_dir, api_base, model, n, max_tokens, concurrency, scr
                 continue
             samples = res.pop("_samples", None)
             done[res["id"]] = res
-            fp.write(json.dumps(res, ensure_ascii=False) + "\n")
-            fp.flush()
+            # 응답 샘플을 먼저 쓰고 통과율(=이 문항이 끝났다는 표시)을 나중에 쓴다. 그 사이에 죽어도 문항이 "끝난 것"으로 남아 샘플이 영영 없어지는 일이 없다
+            # (대신 다시 풀면 샘플이 중복될 수 있는데, 읽는 쪽은 같은 id의 마지막 줄을 쓴다).
             if sfp is not None and samples:
                 sfp.write(json.dumps({"id": res["id"], "samples": samples}, ensure_ascii=False) + "\n")
                 sfp.flush()
+            fp.write(json.dumps(res, ensure_ascii=False) + "\n")
+            fp.flush()
             if i % 100 == 0:
                 print(f"[screen] {i}/{len(todo)}", flush=True)
     if sfp is not None:

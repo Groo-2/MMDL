@@ -46,6 +46,7 @@ import run_mmmu_eval as R  # noqa: E402  (평가 코드 그대로 사용)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import summarize_runs  # noqa: E402
 from envinfo import load_env_file, snapshot  # noqa: E402
+from jsonl_repair import repair_tree  # noqa: E402
 
 JUDGE = R.JUDGE_REPO
 JUDGE_REV = R.JUDGE_REVISION
@@ -195,6 +196,9 @@ def main():
                          "(export HF_TOKEN=... 또는 저장소 루트의 .env). judge 없이 돌리려면 --no-judge")
 
     out_root.mkdir(parents=True, exist_ok=True)
+    # 이전 실행이 줄을 쓰다 죽었다면(수업 시간 원격 종료, 강제 종료) 반쪽 마지막 줄 때문에 이어받기가 멈추거나 다음 줄이 깨진다. 먼저 바로잡는다.
+    for path, n in repair_tree(out_root).items():
+        print(f"[repair] 반쪽 마지막 줄을 잘라 냈다 ({n}바이트, 그 문항은 다시 푼다): {path}", flush=True)
     sc = scope(args)
     revision_args = ["--revision", args.revision] if args.revision else []
 

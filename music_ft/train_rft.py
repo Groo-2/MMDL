@@ -158,6 +158,11 @@ def main():
     trainer_cls = Trainer if args.hf_loss else ResponseOnlyTrainer
     trainer = trainer_cls(model=model, args=train_args, train_dataset=rows, data_collator=RFTCollator(processor, output_dir / "jpeg"))
 
+    if args.resume:      # 저장 도중에 죽어서 반쪽이 된 체크포인트는 건너뛴다 (trainer_state.json이 마지막에 쓰이므로 없으면 불완전)
+        from ckpt_utils import quarantine_incomplete_checkpoints
+
+        for name in quarantine_incomplete_checkpoints(output_dir):
+            print(f"[resume] 불완전한 체크포인트를 건너뛴다(incomplete-{name}로 이름 변경): {name}")
     last = get_last_checkpoint(str(output_dir)) if args.resume else None
     print("이어서 학습:" if last else "처음부터 학습", last or "")
     trainer.train(resume_from_checkpoint=last)
