@@ -118,6 +118,9 @@ else
       --index-url https://download.pytorch.org/whl/cu129
   pip install "https://github.com/vllm-project/vllm/releases/download/v${VLLM_VERSION}/vllm-${VLLM_VERSION}+cu129-cp38-abi3-manylinux_2_28_x86_64.whl" \
       --extra-index-url https://download.pytorch.org/whl/cu129 -c "$CONSTRAINTS"
+  # PyPI의 torchcodec 0.17.0은 CUDA 13용이라, cu129 환경에서 vLLM 서버가 libtorchcodec_image.so(libcudart.so.13)를 못 찾아 죽는다
+  # (2026-11-14 새 리눅스 머신). 평가 환경(이전 PC의 lock)과 같은 CPU 빌드로 교체한다. 동영상은 쓰지 않는다.
+  pip install --force-reinstall --no-deps "torchcodec==0.17.0+cpu" --index-url https://download.pytorch.org/whl/cpu
 fi
 
 # 학습(GRPO) + 데이터 변환 + 평가 보조
