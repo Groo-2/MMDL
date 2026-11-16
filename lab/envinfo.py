@@ -50,5 +50,16 @@ def snapshot(out_dir, extra=None):
         info["torch"] = f"(torch import 실패: {e!r})"
     if extra:
         info.update(extra)
-    (out_dir / "env_snapshot.json").write_text(json.dumps(info, ensure_ascii=False, indent=2))
+    target = out_dir / "env_snapshot.json"
+    if target.exists():
+        # 같은 폴더에 학습과 평가가 모두 기록을 남기거나(예: results/dpo_dvmx1), 같은 폴더를 다른 환경에서 다시 돌릴 때(cu129 → cu130)
+        # 이전 기록을 덮어쓰면 학습/이전 평가 환경의 근거를 잃는다(2026-11-16 dpo_dvmx1에서 실제로 발생). 도구나 torch 환경이 다르면 이전 기록을 시각을 붙여 보존한다.
+        try:
+            old = json.loads(target.read_text())
+        except Exception:  # noqa: BLE001
+            old = None
+        if old is not None and (old.get("tool") != info.get("tool") or old.get("torch") != info.get("torch")):
+            stamp = str(old.get("time") or "old").replace(" ", "_").replace(":", "")
+            target.rename(out_dir / f"env_snapshot.{stamp}.json")
+    target.write_text(json.dumps(info, ensure_ascii=False, indent=2))
     return info

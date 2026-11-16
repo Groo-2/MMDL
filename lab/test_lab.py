@@ -1139,6 +1139,29 @@ class InterruptionRecovery(unittest.TestCase):
             (m / ".merge_ok").write_text("{}")
             self.assertIsNone(Q.merge_marker_warning("m1/merged", repo=d))
 
+    def test_env_snapshot_keeps_training_record(self):
+        # 같은 폴더에 학습 기록 → 평가 기록 순으로 쓰면 학습 환경 기록을 잃지 않아야 한다
+        import envinfo
+
+        orig = envinfo._run
+        envinfo._run = lambda cmd: "x==1"
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                d = Path(d)
+                envinfo.snapshot(d, extra={"tool": "train_dpo"})
+                first = json.loads((d / "env_snapshot.json").read_text())
+                self.assertEqual(first["tool"], "train_dpo")
+                envinfo.snapshot(d, extra={"model": "m"})                         # 평가 기록 (tool 없음)
+                now = json.loads((d / "env_snapshot.json").read_text())
+                self.assertNotIn("tool", now)
+                kept = [p for p in d.glob("env_snapshot.*.json")]
+                self.assertEqual(len(kept), 1)                                      # 학습 기록이 시각을 붙여 보존됐다
+                self.assertEqual(json.loads(kept[0].read_text())["tool"], "train_dpo")
+                envinfo.snapshot(d, extra={"model": "m"})                         # 같은 평가를 이어서 돌 때(재개)는 새 파일을 만들지 않는다
+                self.assertEqual(len(list(d.glob("env_snapshot.*.json"))), 1)
+        finally:
+            envinfo._run = orig
+
     def test_status_reports_progress(self):
         import status as ST
 
