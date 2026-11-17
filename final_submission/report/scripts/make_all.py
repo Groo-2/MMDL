@@ -145,10 +145,110 @@ def decomposition(base, model):
 
 
 # ---------------------------------------------------------------- 표 출력
+TABLE_CAP = {"table7_environments": 48, "table3_subjects_cu130": 40, "table9_hyperparameters": 44, "table5_all_experiments": 30, "table2_paired_cu130": 40, "table4_decomposition": 34}
+
+
 def tex_escape(s):
     return (str(s).replace("\\", r"\textbackslash{}").replace("%", r"\%").replace("_", r"\_").replace("&", r"\&")
             .replace("#", r"\#").replace("≥", r"$\geq$").replace("→", r"$\to$").replace("-", "-").replace("±", r"$\pm$")
             .replace("**", "").replace("\n", " "))
+
+
+def _units(t):
+    """글자 폭 추정: 영문·숫자 1, 한글 등 2."""
+    return sum(2 if ord(ch) > 0x2E80 else 1 for ch in t)
+
+
+def _wrap(text, cap):
+    """cap(글자 폭 단위)을 넘으면 공백에서, 공백이 없으면 글자 단위로 줄바꿈한다."""
+    lines = []
+    for para in str(text).split("\n"):
+        cur = ""
+        for word in para.split(" "):
+            cand = word if not cur else cur + " " + word
+            if _units(cand) <= cap:
+                cur = cand
+                continue
+            if cur:
+                lines.append(cur)
+                cur = ""
+            while _units(word) > cap:
+                k, w = 0, 0
+                while k < len(word) and w + _units(word[k]) <= cap:
+                    w += _units(word[k])
+                    k += 1
+                lines.append(word[:k])
+                word = word[k:]
+            cur = word
+        lines.append(cur)
+    return lines
+
+
+def render_table_image(out, name, caption, header, rows, note=None, cap=26, fs=8.0):
+    """표를 그림(png, pdf)으로 저장한다. **로 표시된 셀은 강조(연한 노랑 배경)한다."""
+    from matplotlib.patches import Rectangle
+
+    clean = lambda c: str(c).replace("**", "")  # noqa: E731
+    bold = lambda c: str(c).startswith("**")  # noqa: E731
+    ncol = len(header)
+    wrapped = [[_wrap(clean(c), cap) for c in r] for r in rows]
+    head = [_wrap(h, cap) for h in header]
+    unit = fs * 0.52 / 72.0                      # 폭 단위 1칸(inch)
+    colw = []
+    for j in range(ncol):
+        m = max([_units(l) for l in head[j]] + [_units(l) for r in wrapped for l in r[j]] + [4])
+        colw.append(m * unit + 0.22)
+    line_h = fs * 1.45 / 72.0
+    pad = 0.09
+    head_h = max(len(h) for h in head) * line_h + pad * 2
+    rh = [max(len(c) for c in r) * line_h + pad * 2 for r in wrapped]
+    width = sum(colw)
+    cap_lines = _wrap(caption.replace("**", ""), max(24, int(width / unit * 0.82)))
+    note_lines = _wrap(note, max(30, int(width / unit))) if note else []
+    top = len(cap_lines) * (line_h + 0.03) + 0.18
+    bottom = (len(note_lines) * (line_h + 0.02) + 0.18) if note_lines else 0.08
+    height = top + head_h + sum(rh) + bottom
+    fig = plt.figure(figsize=(width + 0.1, height))
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, width + 0.1)
+    ax.set_ylim(height, 0)
+    ax.axis("off")
+    for i, l in enumerate(cap_lines):
+        ax.text(0.04, 0.1 + i * (line_h + 0.03), l, fontsize=fs + 1.2, va="top", ha="left", fontweight="bold")
+    y = top
+    ax.add_patch(Rectangle((0.05, y), width, head_h, fc="#1f3a5f", ec="none"))
+    x = 0.05
+    for j, h in enumerate(head):
+        for k, l in enumerate(h):
+            ax.text(x + colw[j] / 2, y + pad + k * line_h, l, fontsize=fs, color="white", va="top", ha="center")
+        x += colw[j]
+    y += head_h
+    for i, r in enumerate(wrapped):
+        raw = rows[i]
+        if i % 2:
+            ax.add_patch(Rectangle((0.05, y), width, rh[i], fc="#f3f5f8", ec="none"))
+        x = 0.05
+        for j, cell in enumerate(r):
+            if bold(raw[j]):
+                ax.add_patch(Rectangle((x, y), colw[j], rh[i], fc="#fff3c4", ec="none"))
+            left = j == 0 or max(_units(l) for l in cell) > 18
+            for k, l in enumerate(cell):
+                if left:
+                    ax.text(x + 0.08, y + pad + k * line_h, l, fontsize=fs, va="top", ha="left")
+                else:
+                    ax.text(x + colw[j] / 2, y + pad + k * line_h, l, fontsize=fs, va="top", ha="center")
+            x += colw[j]
+        y += rh[i]
+        ax.plot([0.05, 0.05 + width], [y, y], color="#d0d5dd", lw=0.5)
+    ax.plot([0.05, 0.05 + width], [top, top], color="#1f3a5f", lw=1.2)
+    ax.plot([0.05, 0.05 + width], [y, y], color="#1f3a5f", lw=1.2)
+    for i, l in enumerate(note_lines):
+        ax.text(0.05, y + 0.08 + i * (line_h + 0.02), l, fontsize=fs - 0.8, va="top", ha="left", style="italic", color="#444444")
+    d = Path(out) / "table_images"
+    d.mkdir(parents=True, exist_ok=True)
+    fig.savefig(d / f"{name}.png", dpi=250)
+    fig.savefig(d / f"{name}.pdf")
+    plt.close(fig)
 
 
 def write_table(out, name, caption, header, rows, note=None):
@@ -173,6 +273,7 @@ def write_table(out, name, caption, header, rows, note=None):
         tex += [f"\\\\[2pt]{{\\footnotesize {tex_escape(note)}}}"]
     tex += ["\\end{table}"]
     (t / f"{name}.tex").write_text("\n".join(tex) + "\n", encoding="utf-8")
+    render_table_image(out, name, caption, header, rows, note, cap=TABLE_CAP.get(name, 26))
 
 
 def save_fig(fig, out, name):
@@ -304,7 +405,7 @@ def main():
 
         def g(n):
             x = fr.get(n, "-")
-            return x.split("==")[1] if "==" in x else ("+cu129 휠(GitHub)" if "@" in x else "-")
+            return x.split("==")[1] if "==" in x else ("0.27.1+cu129 (GitHub 휠)" if "@" in x else "-")
         t = s.get("torch", {})
         return {"GPU/드라이버": s.get("nvidia_smi", "-").replace("NVIDIA GeForce ", "").replace(", 24564 MiB", ""),
                 "OS": s.get("platform", "-").split("-with")[0], "torch": t.get("version", "-") if isinstance(t, dict) else "-",
