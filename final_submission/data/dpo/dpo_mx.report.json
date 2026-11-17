@@ -1,0 +1,11 @@
+{
+  "mx": {
+    "screened_prompts": 2218,
+    "prompts_used": 1052,
+    "pairs": 1052,
+    "rejected_kind": {
+      "truncated": 761,
+      "wrong": 291
+    }
+  }
+}

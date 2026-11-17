@@ -1,0 +1,11 @@
+{
+  "dv": {
+    "screened_prompts": 6000,
+    "prompts_used": 1897,
+    "pairs": 1897,
+    "rejected_kind": {
+      "wrong": 626,
+      "truncated": 1271
+    }
+  }
+}

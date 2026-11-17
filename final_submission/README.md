@@ -8,6 +8,7 @@ baseline(과제 1)은 최상위 [`baseline/`](../baseline/)과 [`reports/mmmu_ba
 |---|---|
 | [`report/`](report/) | 결과 문서. [`실험_정리.md`](report/실험_정리.md)(실험별 이유, 벤치마크 선택 이유, 파라미터, 원인 분석, 학습 방식의 기본 개념, 한계), `figures/`(그림 11개), `tables/`(표 9개), `data/`, `scripts/make_all.py` |
 | [`code/`](code/) | 학습·선별·평가 코드와 실행 문서. 아래 "코드" 절 참고 |
+| [`data/dpo/`](data/dpo/README.md) | **제출 모델의 학습 쌍**(DeepVision 1,897 + MusiXQA 1,052 = 2,949쌍)과 해시. 이미지는 제외 |
 
 ## 제출 모델: DPO (DeepVision 수학 쌍 + MusiXQA 악보 쌍): DPO (DeepVision 수학 쌍 + MusiXQA 악보 쌍)
 
@@ -77,7 +78,7 @@ python lab/eval_queue.py dpo_dvmx1=results/dpo_dvmx1/merged:2          # MMMU 90
   | `dpo_mx.jsonl` (MusiXQA 쌍) | 1,052 | `d0937312c0c3898cf35fa8789706ec2989e8612601e26ce6f5d7c2779563e5da` |
   | `dpo_dv_mx.jsonl` (섞은 학습 파일) | 2,949 | `a1b386dd6ff753383b26b5c83a1edba03b9b3e54594da26ae298e2d2c233b147` |
 
-  `mix_dpo.py`는 위 두 입력 파일에서 학습에 쓴 섞은 파일과 **바이트 단위로 같은 파일**을 만든다(2026-11-18 실습실에서 `cmp`로 확인). 나쁜 응답 구성은 잘린 응답 2,032 / 틀린 응답 917.
+  `mix_dpo.py`는 위 두 입력 파일(`final_submission/data/dpo/`에 포함)에서 학습에 쓴 섞은 파일과 **바이트 단위로 같은 파일**을 만든다(2026-11-18 실습실에서 `cmp`로 확인). 나쁜 응답 구성은 잘린 응답 2,032 / 틀린 응답 917.
 - 학습 로직은 첫 DPO 모델의 코드(태그 `dpo_dv1-code`)와 같고, 이후 추가된 것은 중단 복구(불완전 체크포인트 건너뛰기, 이어쓰기 전 깨진 줄 복구)뿐이다.
 - 코드 테스트: `python -m unittest lab.test_lab` (GPU 불필요, 78개).
 - 환경 설치와 점검 절차는 `lab/RUNBOOK_resume.md`, `lab/README_lab.md`, `lab/RUNBOOK_실습실_명령어.md`.
