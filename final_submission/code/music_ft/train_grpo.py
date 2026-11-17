@@ -1,0 +1,377 @@
+"""SSMR-Bench Train_visual로 Qwen3-VL-4B-Instruct를 GRPO(LoRA) 학습한다.
+
+기본은 실습실 RTX 4090 24GB(--rollout hf): rollout을 HF generate로 한다. 24GB에서는 학습 모델(약 9GB) + 옵티마이저(약 2GB)와
+vLLM 사본(약 9GB)을 동시에 올릴 수 없어서(KV cache가 1GB 안팎만 남는다) vLLM colocate를 쓰지 않는다. 느리지만 모델 사본이 하나뿐이라
+메모리가 안정적이다. A100 40GB 이상이면 --rollout vllm (colocate)도 쓸 수 있다.
+
+SSMR-Bench 논문(§3.1)의 설정을 따른다: rollout 8, KL 없음(beta=0), 정답 보상만.
+(E1' 실험용 옵션: --beta, --mask-truncated, --save-total-limit. 기본값은 E1(grpo_run1)과 같다.)
+논문과 다른 점은 README/계획서 참고 (동결 프롬프트, rule 파서 보상, LoRA, 작은 스텝당 문항 수).
+
+프롬프트는 mmmu_eval/prompting.py의 build_mmmu_pro_cot_text()를 그대로 쓴다. 평가와 같은 문구이고,
+평가의 OpenAI chat 형식(텍스트 먼저, 이미지는 등장 순서대로 뒤에)과 같은 순서로 메시지를 만든다.
+
+사용 예 (실습실)
+  python music_ft/train_grpo.py --data-dir data/ssmr --output-dir results/grpo_run1 --max-steps 2   # 파일럿
+  python music_ft/train_grpo.py ... --max-steps 100 --resume                                         # 본 학습 (끊기면 --resume)
+"""
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+def _mmmu_eval_dir():
+    here = HERE
+    for cand in (here.parent / "baseline" / "mmmu_eval", here.parent / "mmmu_eval"):
+        if cand.is_dir():
+            return str(cand)
+    raise SystemExit("mmmu_eval 폴더를 찾지 못했다 (../baseline/mmmu_eval 또는 ../mmmu_eval)")
+
+sys.path.insert(0, _mmmu_eval_dir())
+
+from prompting import MAX_PIXELS, MIN_PIXELS, build_mmmu_pro_cot_text  # noqa: E402
+from reward import accuracy_reward  # noqa: E402
+
+MODEL_REPO = "Qwen/Qwen3-VL-4B-Instruct"
+MODEL_REVISION = "ebb281ec70b05090aa6165b016eac8ec08e71b17"
+
+# 동결된 평가 sampling (mmmu_eval/run_mmmu_eval.py)
+TEMPERATURE = 0.7
+TOP_P = 0.8
+TOP_K = 20
+PRESENCE_PENALTY = 1.5
+SEED = 42
+
+NUM_GENERATIONS = 8  # 논문: rollout 8
+
+
+def _start_mem_logger(period=30):
+    """rollout(생성) 중에는 로그가 없으므로, GPU 메모리를 주기적으로 찍어 어느 단계에서 한계에 닿는지 보이게 한다."""
+    import threading
+    import time
+
+    import torch
+
+    def loop():
+        t0 = time.time()
+        while True:
+            time.sleep(period)
+            free, total = torch.cuda.mem_get_info()
+            print(f"[mem] {time.time() - t0:.0f}s  할당 {torch.cuda.memory_allocated() / 2 ** 30:.1f}GB, "
+                  f"예약 {torch.cuda.memory_reserved() / 2 ** 30:.1f}GB, 최대 {torch.cuda.max_memory_allocated() / 2 ** 30:.1f}GB, "
+                  f"GPU 여유 {free / 2 ** 30:.1f}/{total / 2 ** 30:.1f}GB", flush=True)
+
+    th = threading.Thread(target=loop, daemon=True)
+    th.start()
+    return th
+
+
+class Heartbeat:
+    """한 스텝이 끝나기 전에는 tqdm이 갱신되지 않으므로, micro-batch 진행을 주기적으로 출력한다."""
+
+    def __new__(cls, empty_cache_every=0):
+        import time
+        from transformers import TrainerCallback
+
+        class _Callback(TrainerCallback):
+            def __init__(self):
+                self.t0 = time.time()
+                self.micro = 0
+
+            def on_step_begin(self, args, state, control, **kwargs):
+                # 이전 스텝의 학습이 잡아 둔 캐시 메모리를 돌려줘야 vLLM이 깨어날 때(wake_up) 메모리 부족이 나지 않는다
+                import gc
+                import torch
+
+                gc.collect()
+                torch.cuda.empty_cache()
+                self.micro = 0
+                self.step_t0 = time.time()
+                if not getattr(self, "_mem_thread", None):
+                    self._mem_thread = _start_mem_logger()
+                print(f"[heartbeat] step {state.global_step + 1} 시작 (rollout 포함, 경과 {time.time() - self.t0:.0f}s)", flush=True)
+
+            def on_substep_end(self, args, state, control, **kwargs):
+                self.micro += 1
+                if empty_cache_every and self.micro % empty_cache_every == 0:
+                    # 응답 길이가 들쑥날쑥하면 캐시가 부풀어 GPU 전체(24GB)를 넘기고(WSL2는 시스템 메모리로 넘침) 속도가 무너진다
+                    import gc
+                    import torch
+
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                if self.micro % 8 == 0:
+                    print(f"[heartbeat] step {state.global_step + 1}: micro-batch {self.micro}/{args.gradient_accumulation_steps}, "
+                          f"스텝 경과 {time.time() - self.step_t0:.0f}s", flush=True)
+
+            def on_step_end(self, args, state, control, **kwargs):
+                import torch
+
+                peak = f", GPU 최대 메모리 {torch.cuda.max_memory_allocated() / 2 ** 30:.1f}GB" if torch.cuda.is_available() else ""
+                print(f"[heartbeat] step {state.global_step} 완료, 스텝 시간 {time.time() - self.step_t0:.0f}s{peak}", flush=True)
+
+        return _Callback()
+
+
+def jpeg_q95(src, dst):
+    """평가 파이프라인(prompting.image_to_data_url)과 같이 RGB → JPEG quality 95로 한 번 거친다."""
+    from PIL import Image
+
+    if dst.exists():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    Image.open(src).convert("RGB").save(dst, format="JPEG", quality=95)
+
+
+def load_examples(data_dir, jpeg_dir, jsonl_name, limit=None):
+    examples = []
+    with (data_dir / jsonl_name).open(encoding="utf-8") as f:
+        for line in f:
+            row = json.loads(line)
+            text, image_order, _ = build_mmmu_pro_cot_text(row)
+            if row["image_paths"] and not image_order:
+                raise SystemExit(f"{row['id']}: " + "이미지 파일은 있는데 질문에 '<image 1> ' 표시가 없어 이미지가 프롬프트에서 빠진다(텍스트만으로 학습/평가하게 된다). 질문을 '<image 1> '로 시작하게 고치세요 (lab/validate_mcq_dataset.py로 검증).")
+
+            image_files = []
+            for n in image_order:
+                src = data_dir / row["image_paths"][f"image_{n}"]
+                dst = jpeg_dir / (src.stem + ".jpg")
+                jpeg_q95(src, dst)
+                image_files.append(str(dst))
+
+            # 평가와 같은 순서: 텍스트 먼저, 이미지는 그 뒤에 등장 순서대로
+            content = [{"type": "text", "text": text}] + [{"type": "image"} for _ in image_files]
+            examples.append({
+                "prompt": [{"role": "user", "content": content}],
+                "images": image_files,
+                "answer": row["answer"],
+                "id": row["id"],
+                "category": row["category"],
+            })
+            if limit and len(examples) >= limit:
+                break
+    return examples
+
+
+def pick_stress_examples(examples, k):
+    """메모리를 가장 많이 쓰는 문항 k개: 이미지 수가 많고 텍스트가 긴 순서 (프롬프트 토큰 수의 대리 지표)."""
+
+    def weight(e):
+        return (len(e["images"]), len(e["prompt"][0]["content"][0]["text"]))
+
+    return sorted(examples, key=weight, reverse=True)[:k]
+
+
+def build_dataset(examples):
+    from datasets import Dataset, Image, Sequence
+
+    ds = Dataset.from_list(examples)
+    return ds.cast_column("images", Sequence(Image()))  # 경로 → 접근할 때 PIL로 디코딩
+
+
+def build_lora_config(args):
+    """LLM의 attention/MLP에만 LoRA. vision tower와 merger는 건드리지 않는다."""
+    from peft import LoraConfig
+
+    return LoraConfig(
+        r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+        lora_dropout=0.0,
+        target_modules=r".*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)",
+        task_type="CAUSAL_LM",
+    )
+
+
+def build_grpo_config(args, output_dir, **overrides):
+    """학습 설정. main()과 로컬 테스트(tiny 모델)가 같은 설정을 쓴다."""
+    from trl import GRPOConfig
+
+    completions_per_step = args.prompts_per_step * NUM_GENERATIONS
+    if completions_per_step % args.micro_batch:
+        raise SystemExit("prompts-per-step × 8 이 micro-batch의 배수여야 한다")
+    grad_accum = completions_per_step // args.micro_batch
+
+    kwargs = dict(
+        output_dir=str(output_dir),
+        max_steps=args.max_steps,
+        seed=SEED,
+        bf16=True,
+        learning_rate=args.learning_rate,
+        lr_scheduler_type="constant",
+        per_device_train_batch_size=args.micro_batch,
+        gradient_accumulation_steps=grad_accum,
+        gradient_checkpointing=True,
+        # 논문: rollout 8, KL 없음, 정답 보상만
+        num_generations=NUM_GENERATIONS,
+        beta=args.beta,
+        loss_type="grpo",
+        # 동결 평가 sampling 중 HF generate가 지원하는 것 (temperature, top_p, top_k)
+        temperature=TEMPERATURE,
+        top_p=TOP_P,
+        top_k=TOP_K,
+        repetition_penalty=1.0,
+        max_completion_length=args.max_completion_length,
+        logging_steps=1,
+        save_strategy="steps",
+        save_steps=args.save_steps,
+        save_total_limit=args.save_total_limit,
+        log_completions=False,
+        report_to="none",
+    )
+
+    if args.rollout == "hf":
+        # 프롬프트 1개의 8개 completion(=generation batch 8)씩 생성한다. 이미지 5장짜리 프롬프트(약 5k토큰) × 8의 KV cache가
+        # 24GB 안에 들어가게 하려는 크기다. 최적화 스텝(grad_accum개 micro-batch)마다 prompts-per-step번 생성한다.
+        kwargs.update(
+            use_vllm=False,
+            steps_per_generation=NUM_GENERATIONS // args.micro_batch,
+        )
+        # presence_penalty(평가 sampling)는 HF generate가 지원하지 않아 rollout에서만 뺀다. 평가는 그대로 동결 recipe를 쓴다.
+    else:
+        kwargs.update(
+            use_vllm=True,
+            vllm_mode="colocate",
+            vllm_gpu_memory_utilization=args.vllm_mem,
+            vllm_enable_sleep_mode=True,
+            vllm_max_model_length=args.max_completion_length + 6144,
+            generation_kwargs={"presence_penalty": PRESENCE_PENALTY},
+            # TRL 기본값(sequence_mask)은 긴 응답에서 비율이 1e-22까지 떨어져 손실과 grad_norm이 0이 된다(2026-10-25 확인).
+            vllm_importance_sampling_correction=False,
+        )
+
+    if args.mask_truncated:
+        # 잘린(max_completion_length에서 끊긴) 응답을 보상 0으로 벌주지 않고 손실에서 제외한다. 2,048토큰에서 잘리면 0점이던 E1에서
+        # '짧게 끝내기'가 가장 빨리 보상받는 행동이 되어 풀이가 짧은 틀로 굳었다는 가설(시험 전)에 대한 대응.
+        kwargs["mask_truncated_completions"] = True
+
+    kwargs.update(overrides)
+    return GRPOConfig(**kwargs)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data-dir", required=True, help="build_ssmr.py 출력 폴더(dedupe 후 train.dedup.jsonl 사용)")
+    parser.add_argument("--output-dir", required=True, help="체크포인트가 저장되는 폴더")
+    parser.add_argument("--train-file", default="train.dedup.jsonl")
+    parser.add_argument("--max-steps", type=int, required=True)
+    parser.add_argument("--prompts-per-step", type=int, default=8, help="스텝당 문항 수 (논문 128)")
+    parser.add_argument("--rollout", choices=["hf", "vllm"], default="hf", help="hf: 24GB용(기본), vllm: A100 40GB 이상 colocate")
+    parser.add_argument("--micro-batch", type=int, default=1, help="GPU 한 번에 처리하는 completion 수 (24GB는 1)")
+    parser.add_argument("--max-completion-length", type=int, default=2048)
+    parser.add_argument("--learning-rate", type=float, default=2e-5)
+    parser.add_argument("--lora-r", type=int, default=64)
+    parser.add_argument("--lora-alpha", type=int, default=128)
+    parser.add_argument("--vllm-mem", type=float, default=0.35, help="--rollout vllm일 때만")
+    parser.add_argument("--save-steps", type=int, default=25)
+    parser.add_argument("--save-total-limit", type=int, default=3, help="보관할 체크포인트 수 (E1은 3이라 120/130/140만 남았다)")
+    parser.add_argument("--empty-cache-every", type=int, default=0,
+                        help="N번 micro-batch마다 CUDA 캐시를 비운다 (0=끔, E1과 같음). 24GB에서 예약 메모리가 GPU 전체를 넘길 때 쓴다")
+    parser.add_argument("--beta", type=float, default=0.0, help="KL 페널티 (0이면 E1과 같이 KL 없음. PEFT는 어댑터를 끈 모델이 기준)")
+    parser.add_argument("--mask-truncated", action="store_true", help="잘린 응답을 손실에서 제외 (TRL mask_truncated_completions)")
+    parser.add_argument("--limit", type=int, default=None, help="디버그용: 앞 N문항만")
+    parser.add_argument("--max-images", type=int, default=None,
+                        help="이미지가 N장을 넘는 문항은 학습·stress에서 제외한다 (해상도는 그대로. 24GB 메모리용)")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--stress", action="store_true",
+                        help="가장 긴(이미지 5장) 프롬프트 prompts-per-step개로 1스텝만 실행해 메모리 한계를 미리 확인한다")
+    args = parser.parse_args()
+
+    import torch
+    from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+    from transformers.trainer_utils import get_last_checkpoint
+    from trl import GRPOTrainer
+
+    data_dir = Path(args.data_dir)
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.rollout == "hf":
+        # vLLM sleep mode와 충돌하므로 vLLM을 쓰지 않을 때만 단편화를 줄인다
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    config = build_grpo_config(args, output_dir)
+
+    sys.path.insert(0, str(HERE.parent / "lab"))
+    from envinfo import snapshot
+
+    snapshot(output_dir, extra={"tool": "train_grpo", "args": {k: str(v) for k, v in vars(args).items()}})
+
+    examples = load_examples(data_dir, output_dir / "jpeg", args.train_file, args.limit)
+    if args.max_images:
+        before = len(examples)
+        examples = [e for e in examples if len(e["images"]) <= args.max_images]
+        print(f"[max-images {args.max_images}] 이미지 {args.max_images}장 이하 문항만 사용: {before} → {len(examples)}")
+    if args.stress:
+        examples = pick_stress_examples(examples, args.prompts_per_step)
+        args.max_steps = 1
+        print(f"[stress] 최악 조건 프롬프트 {len(examples)}개 (이미지 수 {[len(e['images']) for e in examples]})로 1스텝만 실행")
+    dataset = build_dataset(examples)
+    print(f"학습 문항 {len(dataset)}개, 스텝당 {args.prompts_per_step}문항 × {NUM_GENERATIONS} = "
+          f"{args.prompts_per_step * NUM_GENERATIONS} completion | rollout={args.rollout}")
+
+    processor = AutoProcessor.from_pretrained(MODEL_REPO, revision=MODEL_REVISION)
+    # 평가(vLLM)와 같은 이미지 해상도. qwen-vl-finetune/data_processor.py와 같은 방식으로 설정한다.
+    # TRL은 prompt_ids를 왼쪽 패딩하지만 mm_token_type_ids는 이 프로세서로 다시 만든다. Qwen3-VL 토크나이저의 기본 패딩은
+    # 오른쪽이라, 길이가 다른 프롬프트(이미지 1장 vs 5장)가 한 배치에 있으면 이미지 토큰 표시가 밀려서
+    # get_rope_index에서 shape mismatch가 난다. 왼쪽으로 맞춘다.
+    processor.tokenizer.padding_side = "left"
+    ip = processor.image_processor
+    ip.min_pixels, ip.max_pixels = MIN_PIXELS, MAX_PIXELS
+    ip.size = {"shortest_edge": MIN_PIXELS, "longest_edge": MAX_PIXELS}
+
+    # 해상도 설정이 실제로 먹는지 모델을 올리기 전에 확인한다 (작은 악보도 평가처럼 약 980토큰이어야 한다)
+    from PIL import Image as PILImage
+
+    probe = ip(images=[PILImage.new("RGB", (201, 66), "white")], return_tensors="np")
+    t, h, w = probe["image_grid_thw"][0]
+    probe_tokens = int(t * h * w) // (ip.merge_size ** 2)
+    print(f"해상도 점검: 201x66 이미지 → 이미지 토큰 {probe_tokens} (기대 약 {MIN_PIXELS // 1024})")
+    if not MIN_PIXELS // 1024 <= probe_tokens <= MAX_PIXELS // 1024:
+        raise SystemExit("min_pixels/max_pixels가 image processor에 적용되지 않았다. 평가와 해상도가 달라진다.")
+
+    # Qwen3-VL 비전 패치 임베딩은 원래 구현(conv3d)을 그대로 쓴다. cuDNN이 깨져 있으면 첫 rollout을 돌리기 전에 멈춘다.
+    # (환경 문제는 diag_cudnn.py로 진단한다. 모델 구현을 바꾸거나 cuDNN을 끄지 않는다.)
+    probe_x = torch.randn(2, 3, 2, 16, 16, device="cuda", dtype=torch.bfloat16)
+    probe_conv = torch.nn.Conv3d(3, 8, (2, 16, 16), (2, 16, 16)).cuda().to(torch.bfloat16)
+    try:
+        probe_conv(probe_x)
+    except RuntimeError as e:
+        raise SystemExit(f"conv3d(cuDNN) 점검 실패: {str(e)[:120]}\n→ python diag_cudnn.py 로 원인을 확인하세요.")
+    print("conv3d 점검: cuDNN 정상")
+    del probe_x, probe_conv
+
+    model = Qwen3VLForConditionalGeneration.from_pretrained(
+        MODEL_REPO, revision=MODEL_REVISION, torch_dtype=torch.bfloat16
+    )
+
+    peft_config = build_lora_config(args)
+
+    trainer = GRPOTrainer(
+        model=model,
+        processing_class=processor,
+        reward_funcs=accuracy_reward,
+        args=config,
+        train_dataset=dataset,
+        peft_config=peft_config,
+        callbacks=[Heartbeat(args.empty_cache_every)],
+    )
+
+    # --resume: 체크포인트가 있으면 이어서, 없으면 처음부터 (HF는 True를 주고 체크포인트가 없으면 에러를 낸다)
+    if args.resume:      # 저장 도중에 죽어서 반쪽이 된 체크포인트는 건너뛴다 (trainer_state.json이 마지막에 쓰이므로 없으면 불완전)
+        from ckpt_utils import quarantine_incomplete_checkpoints
+
+        for name in quarantine_incomplete_checkpoints(output_dir):
+            print(f"[resume] 불완전한 체크포인트를 건너뛴다(incomplete-{name}로 이름 변경): {name}")
+    last = get_last_checkpoint(str(output_dir)) if args.resume else None
+    print("이어서 학습:" if last else "처음부터 학습", last or "")
+    trainer.train(resume_from_checkpoint=last)
+    trainer.save_model(str(output_dir / "final_lora"))
+    print("완료:", output_dir / "final_lora")
+
+
+if __name__ == "__main__":
+    main()

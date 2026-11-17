@@ -1,0 +1,9 @@
+# GPU 서버(Colab A100 / RTX 4090) 전용. 정확한 버전은 첫 설치 후
+# `pip freeze > requirements.lock.txt`로 고정해서 보고서 §1에 첨부할 것.
+# vLLM 버전은 팀 GitHub baseline(qwen-mmmu-62-44)과 같게 맞춘다.
+vllm==0.27.1
+datasets
+huggingface_hub
+requests
+Pillow
+pandas

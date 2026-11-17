@@ -3,7 +3,7 @@
 Qwen3-VL-4B-Instruct MMMU validation baseline 평가 (과제 1).
 
 - [`reports/mmmu_baseline.md`](reports/mmmu_baseline.md): 제출 보고서
-- [`reports/finetuning/`](reports/finetuning/README.md): 파인튜닝 결과(과제 2). 제출 모델은 DeepVision+MusiXQA DPO, 실험별 정리·표·그림. 학습 코드는 `ssmr` 브랜치
+- [`final_submission/`](final_submission/README.md): **최종 제출(과제 2, 파인튜닝)**. 제출 모델(DeepVision+MusiXQA DPO) 정보, 결과 문서(`report/`), 학습·평가 코드(`code/`)
 - [`baseline/`](baseline/): 평가 파이프라인. 실행 방법과 설계 선택의 근거는 [`baseline/README_mmmu_eval.md`](baseline/README_mmmu_eval.md), baseline 결정 과정은 [`baseline/reports/baseline_decision.md`](baseline/reports/baseline_decision.md)
 
 한 커맨드 재현 (모든 명령은 `baseline/` 폴더에서 실행):
