@@ -1162,6 +1162,34 @@ class InterruptionRecovery(unittest.TestCase):
         finally:
             envinfo._run = orig
 
+    def test_mix_dpo_order_duplicates_and_images(self):
+        # 제출 모델의 쌍 파일은 DeepVision 쌍과 MusiXQA 쌍을 이어 붙여 Random(42)로 셔플한 것이다
+        import random
+
+        import mix_dpo
+
+        def pair(i, kind="truncated", img="images/a.jpg"):
+            return {"id": i, "data_dir": "x", "image_paths": {"image_1": img}, "rejected_kind": kind}
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            a = [pair(f"dv_{i}") for i in range(20)]
+            b = [pair(f"mx_{i}", "wrong") for i in range(7)]
+            for name, rows in (("a", a), ("b", b)):
+                (d / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            ref = a + b
+            random.Random(42).shuffle(ref)
+            got, counts = mix_dpo.mix([d / "a.jsonl", d / "b.jsonl"], 42)
+            self.assertEqual([r["id"] for r in got], [r["id"] for r in ref])               # 학습 때 쓴 순서와 같다
+            self.assertEqual(sorted(counts.values()), [7, 20])
+            self.assertNotEqual([r["id"] for r in got], [r["id"] for r in a + b])           # 실제로 섞였다
+            with self.assertRaises(ValueError):                                              # 같은 id가 두 입력에 있으면 거부
+                mix_dpo.mix([d / "a.jsonl", d / "a.jsonl"], 42)
+            self.assertEqual(len(mix_dpo.missing_images(got, root=d)), 27)                   # 이미지가 없으면 모두 보고
+            (d / "x" / "images").mkdir(parents=True)
+            (d / "x" / "images" / "a.jpg").write_bytes(b"x")
+            self.assertEqual(mix_dpo.missing_images(got, root=d), [])
+
     def test_status_reports_progress(self):
         import status as ST
 
