@@ -1,0 +1,22 @@
+\begin{table}[t]
+\centering
+\small
+\caption{표 7. 평가 환경 비교}
+\label{tab:table7_environments}
+\begin{tabular}{lrrrr}
+\toprule
+항목 & 이전 PC (cu129) & 새 머신 cu129 & 새 머신 cu130 & 팀원 (cu130) \\
+\midrule
+GPU/드라이버 & RTX 4090, 560.94 & RTX 4090, 595.99.02 & RTX 4090, 595.99.02 & RTX 4090, 616.92 \\
+OS & Linux-6.6.87.2-microsoft-standard-WSL2-x86\_64 & Linux-7.0.0-42-generic-x86\_64 & Linux-7.0.0-42-generic-x86\_64 & Linux-6.18.33.2-microsoft-standard-WSL2-x86\_64 \\
+torch & 2.13.0+cu129 & 2.13.0+cu129 & 2.13.0+cu130 & 2.13.0+cu130 \\
+vllm & +cu129 휠(GitHub) & +cu129 휠(GitHub) & 0.27.1 & 0.27.1 \\
+transformers & 5.19.0 & 5.19.0 & 5.22.2 & 5.22.2 \\
+datasets & 5.1.0 & 5.1.0 & 5.2.0 & 5.2.0 \\
+trl & 1.16.0 & 1.16.0 & 1.16.0 & 1.16.0 \\
+peft & 0.21.2 & 0.21.2 & 0.21.2 & 0.21.2 \\
+torchcodec & 0.17.0+cpu & 0.17.0+cpu & 0.17.0 & 0.17.0 \\
+\bottomrule
+\end{tabular}
+\\[2pt]{\footnotesize 새 머신 cu130 열은 dpo\_dv1\_re의 cu130 평가 기록. vllm은 cu129에서 GitHub 릴리스 휠(+cu129), cu130에서 PyPI 기본.}
+\end{table}

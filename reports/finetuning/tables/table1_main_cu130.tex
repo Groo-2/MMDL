@@ -1,0 +1,17 @@
+\begin{table}[t]
+\centering
+\small
+\caption{표 1. MMMU validation 900문항 결과 (cu130, 같은 환경, seed 42·43)}
+\label{tab:table1_main_cu130}
+\begin{tabular}{lrrrrrrr}
+\toprule
+모델 & seed 42 정확도 \% (정답 수) & seed 43 정확도 \% (정답 수) & Avg@2 \% & 잘림 (42 / 43) & 요청 오류 (42 / 43) & Music 정답 (42 / 43, 30문항) & Music Avg@2 \% \\
+\midrule
+base & 61.44 (553) & 61.67 (555) & 61.56 & 105 / 104 & 0 / 0 & 3 / 8 & 18.3 \\
+MusiXQA GRPO(팀원) & 63.67 (573) & 65.00 (585) & 64.33 & 2 / 2 & 0 / 0 & 10 / 10 & 33.3 \\
+DPO(DeepVision) & 65.11 (586) & 65.22 (587) & 65.17 & 30 / 35 & 0 / 0 & 10 / 9 & 31.7 \\
+DPO(DeepVision+MusiXQA) & 66.22 (596) & 65.56 (590) & 65.89 & 10 / 17 & 0 / 0 & 13 / 13 & 43.3 \\
+\bottomrule
+\end{tabular}
+\\[2pt]{\footnotesize base는 요청 오류 재시도 후 최종본이다. 잘림은 32,768토큰 안에 끝나지 않은 응답 수.}
+\end{table}
