@@ -246,6 +246,29 @@ class ScoringDefinitions(unittest.TestCase):
         self.assertEqual(s["subjects"], 30)
 
 
+class CheckBenchmarksScript(unittest.TestCase):
+    def test_open_questions_without_options_are_not_a_problem(self):
+        import check_benchmarks as C
+
+        class Fake(FakeDataset):
+            column_names = ["id", "question", "options", "question_type", "answer"]
+
+        rows = [
+            {"id": "test_Finance_1", "question": "What is 2+2?", "options": "[]", "question_type": "open", "answer": "4"},
+            {"id": "test_Finance_2", "question": "Pick <image 1>", "options": "['a', 'b']", "question_type": "multiple-choice",
+             "answer": "A", "image_1": tiny_image(), **{f"image_{i}": None for i in range(2, 8)}},
+        ]
+        bench = B.BENCHMARKS["mmmu_test"]
+        with mock.patch.object(R, "load_subject", return_value=Fake(rows)):
+            n, problems, counts = C.check_subject(bench, "Finance", "unused", 2)
+        self.assertEqual((n, problems), (2, []))
+        self.assertEqual(dict(counts), {0: 1, 2: 1})            # 선택지 수 분포에 0(주관식)이 들어간다
+        broken = [{**rows[1], "options": "[]"}]                  # 객관식인데 선택지가 비어 있으면 문제로 잡는다
+        with mock.patch.object(R, "load_subject", return_value=Fake(broken)):
+            _, problems, _ = C.check_subject(bench, "Finance", "unused", 1)
+        self.assertTrue(any("객관식인데 선택지" in p for p in problems))
+
+
 class ProOriginSplit(unittest.TestCase):
     def test_split_by_id_prefix(self):
         import pro_origin_split as S

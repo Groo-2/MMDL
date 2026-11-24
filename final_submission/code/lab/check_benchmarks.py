@@ -59,8 +59,9 @@ def check_subject(bench, subject, data_root, preview):
         content, parsed = build_content(sample, bench.prompt)
         n_images = sum(1 for part in content if part["type"] == "image_url")
 
-        if not parsed:
-            problems.append(f"{ids[i]}: 선택지를 읽지 못했다")
+        # 주관식(open) 문항은 선택지가 없는 것이 정상이다. 객관식인데 선택지를 못 읽은 경우만 문제로 본다.
+        if not parsed and qtypes[i] == "multiple-choice":
+            problems.append(f"{ids[i]}: 객관식인데 선택지를 읽지 못했다")
 
         if bench.kind == "pro_vision" and n_images != 1:
             problems.append(f"{ids[i]}: vision인데 이미지가 {n_images}장이다")

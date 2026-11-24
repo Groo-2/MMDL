@@ -82,7 +82,7 @@ python lab/eval_queue.py dpo_dvmx1=results/dpo_dvmx1/merged:2          # MMMU 90
 
   `mix_dpo.py`는 위 두 입력 파일(`final_submission/data/dpo/`에 포함)에서 학습에 쓴 섞은 파일과 **바이트 단위로 같은 파일**을 만든다(2026-11-18 실습실에서 `cmp`로 확인). 나쁜 응답 구성은 잘린 응답 2,032 / 틀린 응답 917.
 - 학습 로직은 첫 DPO 모델의 코드(태그 `dpo_dv1-code`)와 같고, 이후 추가된 것은 중단 복구(불완전 체크포인트 건너뛰기, 이어쓰기 전 깨진 줄 복구)뿐이다.
-- 코드 테스트: `python -m unittest lab.test_lab` (GPU 불필요, 79개. 환경에 따라 일부는 건너뛴다). MMMU test와 MMMU-Pro 평가 코드의 테스트는 `python -m unittest lab.test_extra_eval`(19개).
+- 코드 테스트: `python -m unittest lab.test_lab` (GPU 불필요, 79개. 환경에 따라 일부는 건너뛴다). MMMU test와 MMMU-Pro 평가 코드의 테스트는 `python -m unittest lab.test_extra_eval`(20개).
 - 환경 설치와 점검 절차는 `lab/RUNBOOK_resume.md`, `lab/README_lab.md`, `lab/RUNBOOK_실습실_명령어.md`.
 
 ## 가중치가 있을 때 평가만 다시 돌리기
