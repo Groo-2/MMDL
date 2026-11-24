@@ -8,6 +8,7 @@ baseline(과제 1)은 최상위 [`baseline/`](../baseline/)과 [`reports/mmmu_ba
 |---|---|
 | [`report/`](report/) | 결과 문서. [`실험_정리.md`](report/실험_정리.md)(실험별 이유, 벤치마크 선택 이유, 파라미터, 원인 분석, 학습 방식의 기본 개념, 한계), `figures/`(그림 11개), `tables/`·`table_images/`(표 11개를 md, csv, tex와 그림으로), `data/`, `scripts/`(`make_all.py`, `holdout_analysis.py`) |
 | [`code/`](code/) | 학습·선별·평가 코드와 실행 문서. 아래 "코드" 절 참고 |
+| [`REPRODUCE.md`](REPRODUCE.md) | **재현 절차**(환경 → 데이터 → 학습 → 평가). 단계마다 해시와 기대값을 적었다 |
 | [`EXPERIMENTS.md`](EXPERIMENTS.md) | **실험별 위치 색인**(SSMR, DeepVision, MusiXQA 각각의 코드, 문서, 데이터, 결과) |
 | [`data/dpo/`](data/dpo/README.md) | **제출 모델의 학습 쌍**(DeepVision 1,897 + MusiXQA 1,052 = 2,949쌍)과 해시. 이미지는 제외 |
 
@@ -23,7 +24,7 @@ baseline(과제 1)은 최상위 [`baseline/`](../baseline/)과 [`reports/mmmu_ba
 | **어댑터 SHA-256** | `4492c406fe29110a3c7b219890ee80d50bf1981b82956cedea27a00887acd131` |
 | 합친 모델(bf16) | `model.safetensors` 8,875,719,408바이트, SHA-256 `358d4a085d91b671aa063947183ea99f9b5968ed523ccc79bf8f2615e0df087b` |
 
-가중치는 과제 규칙에 따라 이 저장소에 올리지 않는다. 위 해시로 별도 전달된 파일의 무결성을 확인한다.
+가중치는 이 저장소에 올리지 않는다. **저장소의 코드와 쌍 파일만으로 학습부터 평가까지 다시 할 수 있다**([`REPRODUCE.md`](REPRODUCE.md)). 위 해시는 다시 학습한 어댑터와 비교하는 기준이다(GPU 연산 순서 때문에 해시가 같지 않을 수 있고, 점수가 노이즈 범위에서 같은지로 확인한다).
 
 ## 결과 (MMMU validation 900문항, cu130 환경에서 모든 모델을 같은 조건으로 측정, seed 42·43)
 
@@ -53,7 +54,7 @@ baseline(과제 1)은 최상위 [`baseline/`](../baseline/)과 [`reports/mmmu_ba
 | `reports/` | 이전 실험(GRPO, DPO 첫 모델)의 상세 보고서 |
 | `requirements.txt`, `scripts/` | baseline 평가 의존성과 진입 스크립트 |
 
-**제출 모델을 다시 만드는 순서**
+**제출 모델을 다시 만드는 순서** (데이터 내려받기, 해시 확인, 기대값까지 적은 상세 절차는 [`REPRODUCE.md`](REPRODUCE.md))
 ```bash
 cd final_submission/code
 FORCE_PLAN=cu129 CONDA_ENV=<env> bash lab/setup_env.sh                 # 환경(학습·선별은 cu129 환경에서 했다)
