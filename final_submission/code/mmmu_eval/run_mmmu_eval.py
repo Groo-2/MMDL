@@ -1,4 +1,4 @@
-"""Qwen3-VL-4B-Instruct MMMU validation 평가.
+"""Qwen3-VL-4B-Instruct MMMU 평가 (기본 validation. --benchmark로 MMMU test, MMMU-Pro도 평가한다. benchmarks.py 참고).
 
 팀 GitHub(Groo-2/MMDL, qwen-mmmu-62-44) code/run_mmmu_reasoning_4096.py를 바탕으로 다시 구성했다.
 원본은 legacy/run_mmmu_reasoning_4096.orig.py에 보관.
@@ -32,6 +32,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from benchmarks import BENCHMARKS, DEFAULT_BENCHMARK  # noqa: E402
 from judge_utils import (  # noqa: E402
     JUDGE_MAX_INPUT_TOKENS,
     JUDGE_MAX_TOKENS,
@@ -142,21 +143,55 @@ DEFAULT_MAX_NEW_TOKENS = 32768
 # 3. 데이터
 # ============================================================
 
-def load_subject(subject, data_root):
-    """assignment_guidance.md §1.2: 과목마다 별도 config로, revision을 pin해서 로드한다."""
+_FULL_CACHE = {}   # MMMU-Pro처럼 한 config에 전 과목이 들어 있는 벤치마크는 한 번만 읽는다
+
+
+def get_benchmark(args):
+    """--benchmark 인자(없으면 MMMU validation)에 해당하는 벤치마크 정의."""
+
+    return BENCHMARKS[getattr(args, "benchmark", None) or DEFAULT_BENCHMARK]
+
+
+def load_subject(subject, data_root, benchmark=None):
+    """assignment_guidance.md §1.2: revision을 pin해서 로드한다. benchmark를 생략하면 MMMU validation(과목마다 별도 config).
+
+    MMMU-Pro는 한 config에 전 과목이 들어 있어서 subject 열로 나눈다.
+    """
 
     from datasets import load_dataset
 
-    dataset = load_dataset(
-        DATASET_REPO,
-        subject,
-        split=SPLIT,
-        revision=DATASET_REVISION,
-        cache_dir=str(data_root),
-    )
+    bench = benchmark or BENCHMARKS[DEFAULT_BENCHMARK]
 
-    if len(dataset) != SAMPLES_PER_SUBJECT:
-        raise RuntimeError(f"{subject}: expected {SAMPLES_PER_SUBJECT} samples, got {len(dataset)}")
+    if bench.config is None:
+
+        dataset = load_dataset(
+            bench.repo,
+            subject,
+            split=bench.split,
+            revision=bench.revision,
+            cache_dir=str(data_root),
+        )
+
+    else:
+
+        key = (bench.name, str(data_root))
+
+        if key not in _FULL_CACHE:
+            _FULL_CACHE[key] = load_dataset(
+                bench.repo,
+                bench.config,
+                split=bench.split,
+                revision=bench.revision,
+                cache_dir=str(data_root),
+            )
+
+        full = _FULL_CACHE[key]
+        dataset = full.select([i for i, s in enumerate(full["subject"]) if s == subject])
+
+    expected = bench.counts[subject]
+
+    if len(dataset) != expected:
+        raise RuntimeError(f"{subject}: expected {expected} samples, got {len(dataset)}")
 
     return dataset
 
@@ -274,7 +309,7 @@ def call_model(content, args):
 
 def infer_one(subject, dataset, index, args):
 
-    sample = dataset[index]
+    sample = get_benchmark(args).normalize(dataset[index])   # MMMU 행은 그대로, MMMU-Pro 행은 question_type 등을 채운다
 
     t_start = time.time()
 
@@ -309,6 +344,16 @@ def infer_one(subject, dataset, index, args):
 
 def cmd_infer(args):
 
+    bench = get_benchmark(args)
+
+    if getattr(args, "prompt", None) is None:
+        args.prompt = bench.prompt
+
+    if args.prompt not in bench.prompts_allowed:
+        raise RuntimeError(
+            f"{bench.name}에는 prompt {sorted(bench.prompts_allowed)} 중 하나를 써야 한다 (받은 값: {args.prompt})."
+        )
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -332,16 +377,18 @@ def cmd_infer(args):
 
     for subject in select_subjects(args):
 
-        dataset = load_subject(subject, args.data_root)
+        dataset = load_subject(subject, args.data_root, bench)
 
-        count = SAMPLES_PER_SUBJECT if args.limit is None else min(args.limit, SAMPLES_PER_SUBJECT)
+        total = len(dataset)
+        count = total if args.limit is None else min(args.limit, total)
+        ids = dataset["id"]   # 열만 읽는다(이미지를 디코딩하지 않는다)
 
         for index in range(count):
 
-            if dataset[index]["id"] not in done:
+            if ids[index] not in done:
                 tasks.append((subject, dataset, index))
 
-    print(f"[infer] prompt={args.prompt} max_new_tokens={args.max_new_tokens} "
+    print(f"[infer] benchmark={bench.name} prompt={args.prompt} max_new_tokens={args.max_new_tokens} "
           f"concurrency={args.concurrency} | done={len(done)} todo={len(tasks)}")
 
     session_start = time.time()
@@ -503,6 +550,8 @@ def read_peak_gpu_mem_mib(output_dir):
 
 def cmd_score(args):
 
+    bench = get_benchmark(args)
+
     output_dir = Path(args.output_dir)
 
     predictions = latest_by_id(
@@ -606,10 +655,11 @@ def cmd_score(args):
         if len(subject_results) != len(SUBJECTS):
             raise RuntimeError(f"Expected {len(SUBJECTS)} subjects, got {len(subject_results)}. Run infer to completion first.")
 
-        if total_samples != len(SUBJECTS) * SAMPLES_PER_SUBJECT:
-            raise RuntimeError(f"Expected {len(SUBJECTS) * SAMPLES_PER_SUBJECT} samples, got {total_samples}.")
+        if total_samples != bench.expected_total:
+            raise RuntimeError(f"Expected {bench.expected_total} samples, got {total_samples}.")
 
-        if not math.isclose(macro_accuracy, micro_accuracy, rel_tol=1e-12, abs_tol=1e-12):
+        # 과목당 문항 수가 같은 validation에서만 성립한다 (test와 MMMU-Pro는 과목별 문항 수가 다르다)
+        if bench.overall == "macro" and not math.isclose(macro_accuracy, micro_accuracy, rel_tol=1e-12, abs_tol=1e-12):
             raise RuntimeError("Macro and micro accuracy differ.")
 
     # ---- 통계 ----
@@ -627,10 +677,18 @@ def cmd_score(args):
 
     variants = {r["prompt_variant"] for r in final_rows}
 
+    if bench.overall == "macro":
+        overall_accuracy = macro_accuracy
+        overall_definition = "macro average of per-subject accuracy (equals micro when every subject has 30 samples)"
+    else:
+        overall_accuracy = micro_accuracy
+        overall_definition = "micro average over all questions (subjects differ in size; the official MMMU / MMMU-Pro overall)"
+
     summary = {
-        "experiment": "mmmu_val_" + "_".join(sorted(variants)),
-        "overall_accuracy": macro_accuracy,
-        "overall_definition": "macro average of per-subject accuracy (equals micro when every subject has 30 samples)",
+        "experiment": f"{bench.name}_" + "_".join(sorted(variants)),
+        "benchmark": bench.name,
+        "overall_accuracy": overall_accuracy,
+        "overall_definition": overall_definition,
         "macro_accuracy": macro_accuracy,
         "micro_accuracy": micro_accuracy,
         "rule_only_macro_accuracy": macro("accuracy_rule_only"),
@@ -662,7 +720,8 @@ def cmd_score(args):
             "served_revision": sorted({s.get("model_revision") for s in sessions if s["stage"] == "infer"} - {None}),
             "dtype": "bfloat16",
         },
-        "dataset": {"repo": DATASET_REPO, "revision": DATASET_REVISION, "split": SPLIT},
+        "dataset": {"repo": bench.repo, "revision": bench.revision, "split": bench.split,
+                    **({"config": bench.config} if bench.config else {})},
         "generation": {
             "temperature": TEMPERATURE,
             "top_p": TOP_P,
@@ -715,6 +774,7 @@ def cmd_score(args):
     print("=" * 76)
     print("FINAL RESULT")
     print("=" * 76)
+    print(f"benchmark        : {bench.name}")
     print(f"samples          : {total_samples}")
     print(f"correct          : {total_correct}")
     print(f"overall (macro)  : {macro_accuracy * 100:.2f}%")
@@ -740,6 +800,8 @@ def add_common(parser):
     group.add_argument("--all", action="store_true")
 
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--benchmark", choices=sorted(BENCHMARKS), default=DEFAULT_BENCHMARK,
+                        help="평가 데이터 (기본 mmmu_val = MMMU validation). 자세한 설명은 mmmu_eval/benchmarks.py")
     parser.add_argument("--limit", type=int, default=None,
                         help="과목당 앞 N문항만 (스모크 테스트용. baseline 수치로 쓸 수 없음)")
 
@@ -752,7 +814,8 @@ def main():
     p_infer = sub.add_parser("infer", help="평가 모델 추론")
     add_common(p_infer)
     p_infer.add_argument("--data-root", required=True, help="MMMU HF 데이터셋 캐시 디렉터리")
-    p_infer.add_argument("--prompt", choices=sorted(PROMPT_VARIANTS), default="mmmu_pro_cot")
+    p_infer.add_argument("--prompt", choices=sorted(PROMPT_VARIANTS), default=None,
+                         help="생략하면 벤치마크의 기본값(validation, test, MMMU-Pro standard는 mmmu_pro_cot, vision은 mmmu_pro_cot_vision)")
     p_infer.add_argument("--max-new-tokens", type=int, default=DEFAULT_MAX_NEW_TOKENS)
     p_infer.add_argument("--concurrency", type=int, default=32)
     p_infer.add_argument("--request-timeout", type=int, default=3600)

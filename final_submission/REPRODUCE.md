@@ -116,6 +116,29 @@ python lab/summarize_runs.py compare results/base_130 results/dpo_dvmx1      # �
 확인하지 못함
 - **새 머신에서 학습과 평가를 끝까지 한 번 더 돌려 보지는 않았다.** 위 단계들은 학습에 쓴 실제 명령과 코드이고 GPU가 필요한 부분은 실습실에서 실행한 기록이 있지만, 이 문서의 순서 그대로를 처음부터 끝까지 실행한 것은 아니다.
 - 방법 B(쌍을 새로 만드는 경로)로 만든 모델의 점수.
-- MMMU test와 MMMU-Pro 평가(`mmmu_eval/`은 현재 validation만 지원한다). 실행하면 `README.md`의 해당 절에 결과를 추가한다.
+- MMMU test와 MMMU-Pro 평가의 **실행**(코드는 준비했고 9절 방법으로 GPU에서 돌리면 된다). 실행하면 `README.md`의 해당 절에 결과를 추가한다.
+
+## 9. MMMU test와 MMMU-Pro 평가 (6단계의 병합까지 끝난 뒤, 평가 환경 mmdl130에서)
+| 벤치마크 | 문항 수 | 데이터 | 비고 |
+|---|---|---|---|
+| `mmmu_test` | 10,500 | MMMU/MMMU test (정답은 2026-02 공개) | 선택에 쓰지 않은 데이터 |
+| `mmmu_pro_standard10` | 1,730 | MMMU/MMMU_Pro "standard (10 options)" | 공식 MMMU-Pro 주 설정 |
+| `mmmu_pro_vision` | 1,730 | MMMU/MMMU_Pro "vision" (질문과 선택지가 스크린샷 안에) | 공식 점수는 standard(10)와 vision의 평균 |
+| `mmmu_pro_standard4` | 1,730 | MMMU/MMMU_Pro "standard (4 options)" | 선택사항 |
+
+```bash
+cd final_submission/code
+bash lab/eval_extra.sh check      # 1) 데이터 점검(내려받기 포함, GPU 불필요). 과목별 문항 수와 정답, 요청 형식을 확인한다
+bash lab/eval_extra.sh smoke      # 2) 벤치마크마다 과목당 1문항을 끝까지 돌려 서버 기동과 전 과정을 확인한다
+bash lab/eval_extra.sh plan       # 3) 무엇이 남았는지만 출력
+bash lab/eval_extra.sh run        # 4) 본 평가. 끊겨도 같은 명령을 다시 실행하면 끝난 문항은 건너뛰고 이어서 한다
+```
+- 기본값: 모델 `results/dpo_dvmx1/merged`(`MODEL_PATH`, `MODEL_TAG`로 바꾼다), `RUNS_PRO=2`(seed 42, 43), `RUNS_TEST=1`(seed 42). base도 같은 조건으로 재려면 `WITH_BASE=1`. 벤치마크는 `BENCHMARKS="mmmu_pro_standard10 mmmu_pro_vision mmmu_test"`로 고른다.
+- 결과는 `results/<태그>/<벤치마크>/run_NN/`에 쌓이고 validation 결과(`results/<태그>/run_NN`)와 섞이지 않는다. 요약은 `python lab/summarize_runs.py summary results/<태그>/<벤치마크>`, base와의 비교는 `compare`.
+- 직접 부를 수도 있다: `python lab/eval_queue.py --benchmark mmmu_test dpo_dvmx1=results/dpo_dvmx1/merged:1`, `python lab/eval_repeat.py --tag ... --model ... --benchmark mmmu_pro_vision --runs 2`.
+- **시간(추정)**: 최종 모델이 validation 900문항을 seed 한 번에 약 1.6시간에 끝낸 기록을 문항 수로 환산하면 MMMU-Pro 한 설정은 seed 한 번에 약 3시간 이상, MMMU test는 약 19시간 이상이다. 측정값이 아니다. vision은 큰 스크린샷이라 더 걸릴 수 있다. base는 루프가 많아 훨씬 오래 걸리므로 시간이 모자라면 최종 모델만 먼저 돌린다.
+- **점수 정의**: validation은 과목당 30문항이라 과목 평균과 전체 평균이 같지만, test와 MMMU-Pro는 과목별 문항 수가 달라서 공식 정의대로 **전체 문항 평균(micro)** 을 `overall_accuracy`로 쓴다(`summary.json`에 과목 평균도 함께 있다). 채점은 validation과 같은 방식(Answer: 줄 → Llama judge → 오답, 무작위 추측 없음)이라 공식 평가 코드의 점수와 조금 다를 수 있다. base와 같은 방식으로 비교한다.
+- **선택 편향 주의**: MMMU-Pro 1,730문항 중 **577문항이 MMMU validation에서 온 문항**이다. 모델을 validation 점수로 골랐으므로 그 577문항은 선택에 쓰지 않은 데이터가 아니다. `python lab/pro_origin_split.py results/<태그>/mmmu_pro_standard10`가 출처(validation / test)별 정확도를 나눠 준다(`run`이 끝나면 자동으로 출력한다). MMMU test와 MMMU-Pro의 `test_` 1,153문항이 선택과 무관한 결과다. 두 데이터는 일부 겹친다(Pro의 `test_` 문항은 MMMU test의 문항을 다시 만든 것).
+- 확인한 것: 벤치마크 정의와 요청 형식, 추론부터 채점까지 전 과정(가짜 서버), validation 결과가 예전 코드와 같음, 실제 데이터(MMMU-Pro 세 설정 전체, MMMU test의 Music과 Math)로 문항 수와 정답, 이미지를 확인(`python -m unittest lab.test_extra_eval`). 확인하지 못한 것: 실제 모델 서버로 돌린 결과(GPU 필요), MMMU test 30과목 전체의 다운로드(`check`가 확인한다).
 
 문제가 생기면 [`code/lab/RUNBOOK_resume.md`](code/lab/RUNBOOK_resume.md)(중단과 복구), [`code/lab/README_lab.md`](code/lab/README_lab.md)(환경과 평가 설명)를 본다.

@@ -135,6 +135,35 @@ def build_mmmu_pro_cot_content(sample):
     return content, options
 
 
+# 출처: https://github.com/MMMU-Benchmark/MMMU/blob/main/mmmu-pro/prompts.yaml  (cot.vision) — 원문 그대로
+# MMMU-Pro vision은 질문과 선택지가 스크린샷 한 장에 들어 있어서 텍스트는 이 지시문뿐이다.
+MMMU_PRO_COT_VISION_INSTRUCTION = (
+    "Write out the multiple-choice question in the image and then solve it. "
+    "The last line of your response should be of the following format: "
+    "'Answer: $LETTER' (without quotes) where LETTER is one of options. "
+    "Think step by step before answering."
+)
+
+
+def build_mmmu_pro_vision_content(sample):
+    """MMMU-Pro vision: 지시문 텍스트 다음에 스크린샷 이미지 한 장 (공식 infer_transformers.py와 같은 순서).
+
+    options는 채점에만 쓴다(정답 글자 범위와 judge가 응답을 선택지에 대응시킬 때). 모델에게는 보이지 않는다.
+    """
+
+    content = [{"type": "text", "text": MMMU_PRO_COT_VISION_INSTRUCTION}]
+
+    data_url = image_to_data_url(sample.get("image"))
+
+    if data_url:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": data_url},
+        })
+
+    return content, parse_options(sample["options"])
+
+
 # ============================================================
 # 2. github_cot (팀 GitHub 원문 그대로 — 비교 실험용)
 # 출처: Groo-2/MMDL qwen-mmmu-62-44 code/run_mmmu_reasoning_4096.py
@@ -254,6 +283,7 @@ def build_github_content(sample):
 PROMPT_VARIANTS = {
     "mmmu_pro_cot": build_mmmu_pro_cot_content,
     "github_cot": build_github_content,
+    "mmmu_pro_cot_vision": build_mmmu_pro_vision_content,   # MMMU-Pro vision 전용 (benchmarks.py가 연결한다)
 }
 
 

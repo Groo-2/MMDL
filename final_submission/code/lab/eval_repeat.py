@@ -14,6 +14,8 @@
       --revision ebb281ec70b05090aa6165b016eac8ec08e71b17 --runs 8
   python lab/eval_repeat.py --tag grpo_run1 --model results/grpo_run1/merged --preset music4
   python lab/eval_repeat.py --tag smoke --model ... --runs 1 --subject Music    # 시간 측정용
+  python lab/eval_repeat.py --tag dpo_dvmx1 --model results/dpo_dvmx1/merged --runs 2 --benchmark mmmu_pro_vision
+      # MMMU test(mmmu_test), MMMU-Pro(mmmu_pro_standard10, mmmu_pro_standard4, mmmu_pro_vision). 결과는 results/<태그>/<벤치마크>/run_NN
 
 프리셋 (결과는 results/<tag>/<music|full>/run_NN)
   music4        Music 30문항 x seed 42~45
@@ -140,6 +142,12 @@ EXTEND_MESSAGE = (
 def resolve_runs(args):
     """프리셋/인자를 해석해 (출력 폴더, [(run 번호, seed, 폴더)])를 돌려준다. GPU나 서버 없이 호출할 수 있다."""
     out_root = Path(args.out_root) / args.tag
+    bench = R.BENCHMARKS[getattr(args, "benchmark", None) or R.DEFAULT_BENCHMARK]
+    if bench.results_subdir:
+        # MMMU validation이 아닌 벤치마크는 결과 폴더를 따로 쓴다. 같은 폴더에 쓰면 이어받기가 문항 id가 다른 응답을 한 파일에 섞는다.
+        if args.preset:
+            raise SystemExit(f"--preset({args.preset})은 MMMU validation 전용이다. {bench.name}에는 --runs로 run 수를 지정한다.")
+        out_root = out_root / bench.results_subdir
     if args.preset:
         p = PRESETS[args.preset]
         args.subject, args.runs, args.run_start = p["subject"], p["runs"], p["run_start"]
@@ -154,6 +162,9 @@ def main():
     parser.add_argument("--model", required=True, help="HF repo 또는 merge한 체크포인트 폴더")
     parser.add_argument("--revision", default=None, help="HF repo일 때만. 체크포인트 폴더는 생략")
     parser.add_argument("--preset", choices=sorted(PRESETS), default=None)
+    parser.add_argument("--benchmark", choices=sorted(R.BENCHMARKS), default=R.DEFAULT_BENCHMARK,
+                        help="평가 데이터. 기본은 MMMU validation. mmmu_test, mmmu_pro_standard10, mmmu_pro_standard4, mmmu_pro_vision은 "
+                             "결과를 results/<태그>/<벤치마크>/run_NN에 쌓는다")
     parser.add_argument("--runs", type=int, default=4)
     parser.add_argument("--run-start", type=int, default=0, help="run 번호의 시작 (같은 폴더에 이어 붙일 때)")
     parser.add_argument("--seed0", type=int, default=R.SEED, help="run 0의 seed (동결 recipe = 42). run k의 seed = seed0 + k")
@@ -175,6 +186,8 @@ def main():
         sys.exit(3)
 
     out_root, runs = resolve_runs(args)
+    bench_name = args.benchmark
+    bench = R.BENCHMARKS[bench_name]
 
     if args.preset == "music_extend":
         missing = [k for k in range(4) if not (out_root / f"run_{k:02d}" / "final_predictions.jsonl").exists()]
@@ -185,7 +198,7 @@ def main():
         bad = [s for s in args.subjects if s not in R.SUBJECTS]
         if bad or args.subject:
             raise SystemExit(f"--subjects는 유효한 과목 이름만 받고 --subject와 같이 쓸 수 없다 (잘못된 값: {bad})")
-    print(f"계획: {args.tag} | preset={args.preset} | 과목={','.join(args.subjects) if args.subjects else (args.subject or '전체 30과목')} | "
+    print(f"계획: {args.tag} | 벤치마크={bench_name} | preset={args.preset} | 과목={','.join(args.subjects) if args.subjects else (args.subject or '전체 30과목')} | "
           f"run {[k for k, _, _ in runs]} seed {[s for _, s, _ in runs]} | 결과 {out_root}")
     if args.dry_run:
         return
@@ -220,12 +233,12 @@ def main():
             out.mkdir(parents=True, exist_ok=True)
             R.SEED = seed  # call_model이 요청마다 이 값을 읽는다
             (out / "run_meta.json").write_text(json.dumps({
-                "run": k, "seed": seed, "model": args.model, "revision": args.revision, "gpu": gpu,
+                "run": k, "seed": seed, "benchmark": bench_name, "model": args.model, "revision": args.revision, "gpu": gpu,
                 "max_model_len": MAX_MODEL_LEN, "gpu_memory_utilization": args.gpu_mem_util,
                 "subject": args.subject, "limit": args.limit, "preset": args.preset}, indent=2))
             print(f"\n========== [{args.tag}] run {k} seed={seed} ==========", flush=True)
             R.cmd_infer(Namespace(
-                output_dir=str(out), data_root=args.data_root, prompt="mmmu_pro_cot", max_new_tokens=32768,
+                output_dir=str(out), data_root=args.data_root, prompt=bench.prompt, benchmark=bench_name, max_new_tokens=32768,
                 concurrency=args.concurrency, request_timeout=3600, api_base=f"http://localhost:{QWEN_PORT}/v1",
                 served_model_name="qwen3-vl-4b", model_path=args.model,
                 model_revision=args.revision or "local", **sc))
@@ -244,14 +257,14 @@ def main():
             for k, seed, out in runs:
                 R.cmd_judge(Namespace(
                     output_dir=str(out), judge_api_base=f"http://localhost:{JUDGE_PORT}/v1", judge_model="judge",
-                    judge_revision=JUDGE_REV, concurrency=16, **sc))
+                    judge_revision=JUDGE_REV, concurrency=16, benchmark=bench_name, **sc))
         finally:
             stop_server(judge)
 
     # ---------- C) 채점 + 요약 ----------
     for k, seed, out in runs:
         R.SEED = seed  # summary.json에 이 run의 seed가 기록되도록
-        R.cmd_score(Namespace(output_dir=str(out), **sc))
+        R.cmd_score(Namespace(output_dir=str(out), benchmark=bench_name, **sc))
 
     summarize_runs.summarize(out_root)
 

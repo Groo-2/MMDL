@@ -6,6 +6,8 @@
       dpo_dv1_re=results/dpo_dv1_re/merged:2
 
 항목 형식은 `태그=모델[@리비전]:run수` 이다. 결과는 eval_repeat.py와 같은 위치(results/<태그>/run_00, run_01 ...)에 쌓인다. run 하나의 seed는 42 + 번호다.
+`--benchmark mmmu_test|mmmu_pro_standard10|mmmu_pro_standard4|mmmu_pro_vision`을 주면 그 벤치마크로 평가하고 결과는
+results/<태그>/<벤치마크>/run_NN에 쌓인다(기본은 MMMU validation). 한 번에 한 벤치마크만 지정한다.
   - run 폴더에 summary.json이 있으면 그 run은 끝난 것이다. 항목의 run이 모두 끝났으면 서버를 띄우지 않고 건너뛴다.
   - 하나라도 남았으면 eval_repeat.py를 `--runs 전체 수`로 부른다. 끝난 run은 eval_repeat가 알아서 건너뛰고 응답 단위로 이어받는다.
   - 평가 하나가 실패하면 대기열을 멈추고 알린다(그 뒤 항목은 실행하지 않는다). 원인을 해결한 뒤 같은 명령을 다시 실행한다.
@@ -40,16 +42,20 @@ def parse_spec(spec):
     return tag, model, revision, runs
 
 
-def run_status(results_dir, tag, runs):
-    """run 번호별로 끝났는지(summary.json) 돌려준다: [(번호, 끝남 여부)]."""
+def run_status(results_dir, tag, runs, benchmark="mmmu_val"):
+    """run 번호별로 끝났는지(summary.json) 돌려준다: [(번호, 끝남 여부)]. validation이 아닌 벤치마크는 results/<태그>/<벤치마크>/ 아래를 본다."""
     base = Path(results_dir) / tag
+    if benchmark != "mmmu_val":
+        base = base / benchmark
     return [(k, (base / f"run_{k:02d}" / "summary.json").exists()) for k in range(runs)]
 
 
-def build_command(tag, model, revision, runs, python=sys.executable, repo=REPO):
+def build_command(tag, model, revision, runs, python=sys.executable, repo=REPO, benchmark="mmmu_val"):
     cmd = [python, str(Path(repo) / "lab" / "eval_repeat.py"), "--tag", tag, "--model", model, "--runs", str(runs)]
     if revision:
         cmd += ["--revision", revision]
+    if benchmark != "mmmu_val":
+        cmd += ["--benchmark", benchmark]
     return cmd
 
 
@@ -71,6 +77,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("specs", nargs="+", help="태그=모델[@리비전]:run수 (여러 개)")
     parser.add_argument("--results", default=str(REPO / "results"))
+    parser.add_argument("--benchmark", default="mmmu_val",
+                        choices=["mmmu_val", "mmmu_test", "mmmu_pro_standard10", "mmmu_pro_standard4", "mmmu_pro_vision"],
+                        help="평가 데이터 (기본 MMMU validation)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -82,10 +91,10 @@ def main(argv=None):
     print(f"[queue] 시작 {time.strftime('%F %T')} | python {sys.version.split()[0]}", flush=True)
     plan = []
     for tag, model, revision, runs in items:
-        status = run_status(args.results, tag, runs)
+        status = run_status(args.results, tag, runs, args.benchmark)
         todo = [k for k, done in status if not done]
         plan.append((tag, model, revision, runs, todo))
-        print(f"[queue] {tag}: run {runs}개 중 끝난 것 {runs - len(todo)}개" + (f", 남은 run {todo}" if todo else " → 건너뜀"), flush=True)
+        print(f"[queue] {tag} ({args.benchmark}): run {runs}개 중 끝난 것 {runs - len(todo)}개" + (f", 남은 run {todo}" if todo else " → 건너뜀"), flush=True)
         warn = merge_marker_warning(model)
         if warn and todo:
             print(f"[queue] ⚠️ {warn}", flush=True)
@@ -95,7 +104,7 @@ def main(argv=None):
     for i, (tag, model, revision, runs, todo) in enumerate(plan, 1):
         if not todo:
             continue
-        cmd = build_command(tag, model, revision, runs)
+        cmd = build_command(tag, model, revision, runs, benchmark=args.benchmark)
         print(f"\n[queue] ({i}/{len(plan)}) {tag} 시작 {time.strftime('%F %T')}\n[queue] 실행: {' '.join(cmd)}", flush=True)
         t0 = time.time()
         rc = subprocess.call(cmd)

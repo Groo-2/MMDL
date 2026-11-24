@@ -82,7 +82,7 @@ python lab/eval_queue.py dpo_dvmx1=results/dpo_dvmx1/merged:2          # MMMU 90
 
   `mix_dpo.py`는 위 두 입력 파일(`final_submission/data/dpo/`에 포함)에서 학습에 쓴 섞은 파일과 **바이트 단위로 같은 파일**을 만든다(2026-11-18 실습실에서 `cmp`로 확인). 나쁜 응답 구성은 잘린 응답 2,032 / 틀린 응답 917.
 - 학습 로직은 첫 DPO 모델의 코드(태그 `dpo_dv1-code`)와 같고, 이후 추가된 것은 중단 복구(불완전 체크포인트 건너뛰기, 이어쓰기 전 깨진 줄 복구)뿐이다.
-- 코드 테스트: `python -m unittest lab.test_lab` (GPU 불필요, 79개. 환경에 따라 일부는 건너뛴다).
+- 코드 테스트: `python -m unittest lab.test_lab` (GPU 불필요, 79개. 환경에 따라 일부는 건너뛴다). MMMU test와 MMMU-Pro 평가 코드의 테스트는 `python -m unittest lab.test_extra_eval`(19개).
 - 환경 설치와 점검 절차는 `lab/RUNBOOK_resume.md`, `lab/README_lab.md`, `lab/RUNBOOK_실습실_명령어.md`.
 
 ## 가중치가 있을 때 평가만 다시 돌리기
@@ -97,9 +97,11 @@ python lab/summarize_runs.py compare results/<base 태그> results/dpo_dvmx1
 ```
 기대 결과(CUDA 13 환경)는 위 결과 표의 제출 모델 행이다(전체 65.89%, Music 43.3%). 응답은 샘플링(T 0.7)이라 점수가 문항 단위로 약 12~14% 다르게 나올 수 있고, 두 seed 평균 기준으로 비교한다.
 
-## 추가 평가: MMMU test, MMMU-Pro (아직 실행하지 않음)
-- 제출 모델을 MMMU test와 MMMU-Pro로도 평가할 계획이다. **이 평가는 아직 실행하지 않았고** 이 문서의 모든 점수는 MMMU validation 기준이다.
-- 현재 `code/mmmu_eval/`은 MMMU validation만 지원한다(`run_mmmu_eval.py`의 `SPLIT = "validation"`). test와 MMMU-Pro 평가를 실행한 뒤 실행 명령과 결과를 이 절에 추가한다.
+## 추가 평가: MMMU test, MMMU-Pro (코드 준비됨, 아직 실행하지 않음)
+- 제출 모델을 MMMU test(10,500문항)와 MMMU-Pro(standard 10지선다, standard 4지선다, vision 각 1,730문항)로도 평가하는 코드를 준비했다. **이 평가는 아직 실행하지 않았고** 이 문서의 모든 점수는 MMMU validation 기준이다. 실행하면 결과를 이 절에 추가한다.
+- 평가 방식(프롬프트, sampling, 파서, Llama judge, 최대 32,768토큰)은 validation과 같고 바뀌는 것은 데이터와 vision 프롬프트(MMMU-Pro 공식 `cot.vision`)뿐이다. 실행 방법은 [`REPRODUCE.md`](REPRODUCE.md) 9절, 데이터와 revision은 `code/mmmu_eval/benchmarks.py`.
+- 기존 validation 평가가 그대로인지 실제 base 결과 900문항을 예전 코드와 새 코드로 채점해서 비교했다(최종 응답 파일이 바이트 단위로 같고 요약 값도 같다).
+- **MMMU-Pro 1,730문항 중 577문항은 MMMU validation에서 온 것이다**(문항 id가 `validation_`로 시작). 모델을 validation 점수로 골랐기 때문에 이 577문항의 결과는 선택에 쓰지 않은 데이터가 아니다. 선택과 무관한 결과는 MMMU test와 MMMU-Pro의 `test_` 1,153문항이고, `code/lab/pro_origin_split.py`가 출처별로 나눠 준다.
 
 ## 재현할 수 있는 범위와 한계
 - 코드, 쌍·선별 결과, 평가 결과, 해시는 제출물에 포함되거나 위 문서에 적혀 있다. 모델 가중치는 과제 규칙에 따라 저장소에 올리지 않았다.

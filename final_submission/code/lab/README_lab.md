@@ -89,3 +89,12 @@ FAIL이 없는데도 실패하면 그때 에러 로그 자체를 봅니다. 긴 
 - Mac에는 GPU/vLLM이 없어서 **드라이버·CUDA 빌드, vLLM 서버 기동, GPU 메모리**는 실습실에서만 확인됩니다. Mac에서 검증한 것: 설정·선별 로직, 요청 형식과 채점(가짜 서버), merge 정확성, 안전장치, 파이프라인 단계 순서 (`python -m unittest lab.test_lab`).
 - 학습 rollout은 HF generate(24GB에서 vLLM colocate 불가)라 느리고, presence_penalty 1.5를 쓰지 못합니다 (평가는 그대로 사용).
 - GRPO 예산은 논문의 약 3%입니다. 효과는 장담할 수 없고, 학습 seed가 하나(42)라 학습 난수의 영향은 분리하지 못합니다.
+
+## MMMU test, MMMU-Pro 평가
+validation 말고 MMMU test(10,500문항)와 MMMU-Pro(standard 10지선다, standard 4지선다, vision)로도 평가할 수 있다. 평가 방식은 같고 데이터와 vision 프롬프트만 다르다.
+```bash
+bash lab/eval_extra.sh check    # 데이터 점검 (내려받기 포함, GPU 불필요)
+bash lab/eval_extra.sh smoke    # 과목당 1문항으로 전 과정 확인
+bash lab/eval_extra.sh run      # 본 평가 (이어받기 지원)
+```
+자세한 설명은 저장소 `final_submission/REPRODUCE.md` 9절. 결과는 `results/<태그>/<벤치마크>/run_NN`에 쌓인다. MMMU-Pro의 577문항은 MMMU validation에서 온 문항이라 `lab/pro_origin_split.py`로 출처별로 나눠 본다.
