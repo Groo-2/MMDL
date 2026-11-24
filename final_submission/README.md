@@ -10,7 +10,7 @@ baseline(과제 1)은 최상위 [`baseline/`](../baseline/)과 [`reports/mmmu_ba
 | [`code/`](code/) | 학습·선별·평가 코드와 실행 문서. 아래 "코드" 절 참고 |
 | [`data/dpo/`](data/dpo/README.md) | **제출 모델의 학습 쌍**(DeepVision 1,897 + MusiXQA 1,052 = 2,949쌍)과 해시. 이미지는 제외 |
 
-## 제출 모델: DPO (DeepVision 수학 쌍 + MusiXQA 악보 쌍): DPO (DeepVision 수학 쌍 + MusiXQA 악보 쌍)
+## 제출 모델: DPO (DeepVision 수학 쌍 + MusiXQA 악보 쌍)
 
 | 항목 | 값 |
 |---|---|
@@ -48,7 +48,7 @@ baseline(과제 1)은 최상위 [`baseline/`](../baseline/)과 [`reports/mmmu_ba
 |---|---|
 | `mmmu_eval/` | 동결된 MMMU 평가(프롬프트, 파서, judge). 모든 결과가 이 코드로 측정됐다 |
 | `lab/` | 평가 실행(`eval_repeat.py`, `eval_holdout.py`, `eval_queue.py`), 환경 설치와 점검(`setup_env.sh`, `env_triage.py`), 요약과 신뢰구간(`summarize_runs.py`), 중단 복구(`jsonl_repair.py`, `status.py`), 테스트(`test_lab.py`) |
-| `music_ft/` | 데이터 변환·중복 제거(`build_general.py`, `build_musixqa.py`, `dedupe.py`), 응답 선별(`select_ssmr.py`), 쌍 구성(`build_dpo.py`), 학습(`train_dpo.py`, `train_grpo.py`, `train_rft.py`), 어댑터 병합(`merge_lora.py`) |
+| `music_ft/` | 데이터 변환·중복 제거(`build_general.py`, `dedupe.py`), 응답 선별(`select_ssmr.py`), 쌍 구성(`build_dpo.py`), 학습(`train_dpo.py`, `train_grpo.py`, `train_rft.py`), 어댑터 병합(`merge_lora.py`) |
 | `reports/` | 이전 실험(GRPO, DPO 첫 모델)의 상세 보고서 |
 | `requirements.txt`, `scripts/` | baseline 평가 의존성과 진입 스크립트 |
 
@@ -80,11 +80,27 @@ python lab/eval_queue.py dpo_dvmx1=results/dpo_dvmx1/merged:2          # MMMU 90
 
   `mix_dpo.py`는 위 두 입력 파일(`final_submission/data/dpo/`에 포함)에서 학습에 쓴 섞은 파일과 **바이트 단위로 같은 파일**을 만든다(2026-11-18 실습실에서 `cmp`로 확인). 나쁜 응답 구성은 잘린 응답 2,032 / 틀린 응답 917.
 - 학습 로직은 첫 DPO 모델의 코드(태그 `dpo_dv1-code`)와 같고, 이후 추가된 것은 중단 복구(불완전 체크포인트 건너뛰기, 이어쓰기 전 깨진 줄 복구)뿐이다.
-- 코드 테스트: `python -m unittest lab.test_lab` (GPU 불필요, 78개).
+- 코드 테스트: `python -m unittest lab.test_lab` (GPU 불필요, 79개. 환경에 따라 일부는 건너뛴다).
 - 환경 설치와 점검 절차는 `lab/RUNBOOK_resume.md`, `lab/README_lab.md`, `lab/RUNBOOK_실습실_명령어.md`.
+
+## 가중치가 있을 때 평가만 다시 돌리기
+```bash
+cd final_submission/code
+sha256sum <merged 폴더>/model.safetensors        # 358d4a085d91b671aa063947183ea99f9b5968ed523ccc79bf8f2615e0df087b 이어야 한다
+export HF_TOKEN=<본인 토큰>                       # Llama-3.1-8B judge 접근용. 토큰을 저장소나 로그에 남기지 않는다
+python lab/eval_queue.py dpo_dvmx1=<merged 폴더>:2   # 형식은 태그=모델:run수. MMMU validation 900문항, seed 42와 43. 결과는 results/dpo_dvmx1/run_00, run_01
+python lab/summarize_runs.py summary results/dpo_dvmx1
+# base(원본 모델 Qwen/Qwen3-VL-4B-Instruct@ebb281ec...:2)도 같은 방식으로 평가한 뒤 비교하면 문항 단위 paired bootstrap 95% 신뢰구간이 나온다
+python lab/summarize_runs.py compare results/<base 태그> results/dpo_dvmx1
+```
+기대 결과(CUDA 13 환경)는 위 결과 표의 제출 모델 행이다(전체 65.89%, Music 43.3%). 응답은 샘플링(T 0.7)이라 점수가 문항 단위로 약 12~14% 다르게 나올 수 있고, 두 seed 평균 기준으로 비교한다.
+
+## 추가 평가: MMMU test, MMMU-Pro (아직 실행하지 않음)
+- 제출 모델을 MMMU test와 MMMU-Pro로도 평가할 계획이다. **이 평가는 아직 실행하지 않았고** 이 문서의 모든 점수는 MMMU validation 기준이다.
+- 현재 `code/mmmu_eval/`은 MMMU validation만 지원한다(`run_mmmu_eval.py`의 `SPLIT = "validation"`). test와 MMMU-Pro 평가를 실행한 뒤 실행 명령과 결과를 이 절에 추가한다.
 
 ## 재현할 수 있는 범위와 한계
 - 코드, 쌍·선별 결과, 평가 결과, 해시는 제출물에 포함되거나 위 문서에 적혀 있다. 모델 가중치는 과제 규칙에 따라 저장소에 올리지 않았다.
-- 학습과 응답 선별은 CUDA 12.9(torch 2.13.0+cu129, transformers 5.19.0), 최종 MMMU 평가는 CUDA 13(torch 2.13.0, vLLM 0.27.1, transformers 5.22.2)에서 했다. 같은 모델을 두 환경에서 평가했을 때 점수는 같았다(`report/figures/fig8_env_robustness`).
-- MusiXQA 객관식 데이터는 `musixqa-mcq-pilot20-v1` 릴리스(MIT, 원본 puar-playground/MusiXQA)를 썼고, 학습과 hold-out은 겹치지 않는다.
-- 데이터 공개일 주의: SSMR-Bench(2025-09-06)와 MusiXQA(2025-07-07)는 Qwen3-VL(2025-10-11)보다 앞서 공개되어 모델이 이미 봤을 수 있다. DeepVision(2026-02)은 이후다. MMMU validation과 test는 학습에 쓰지 않았고 모든 외부 데이터는 MMMU와 중복을 제거했다.
+- 학습과 응답 선별은 CUDA 12.9(torch 2.13.0+cu129, transformers 5.19.0), 최종 MMMU 평가는 CUDA 13(torch 2.13.0, vLLM 0.27.1, transformers 5.22.2)에서 했다. 같은 모델을 두 환경에서 평가했을 때 정답 수가 거의 같았다(586 vs 586, 586 vs 587. 문항별 정오는 약 12% 달랐고 이는 같은 환경에서 seed만 바꾼 차이와 비슷하다. `report/figures/fig8_env_robustness`).
+- MusiXQA 객관식 데이터는 `musixqa-mcq-pilot20-v1` 릴리스(MIT, 원본 puar-playground/MusiXQA)를 썼고, 학습과 hold-out은 겹치지 않는다. 주관식을 객관식으로 바꾸는 변환 코드(`build_musixqa.py` 등)는 이 폴더에 없고 팀 저장소의 `musixqa-mcq-a` 브랜치에 있다. 이 폴더의 코드는 변환이 끝난 릴리스를 입력으로 쓴다.
+- 데이터 공개일 주의: SSMR-Bench(2025-09)와 MusiXQA(2025-07)는 Qwen3-VL-4B(2025-10)보다 앞서 공개되어 모델이 이미 봤을 수 있다. DeepVision(2026-02)은 이후다. MMMU validation과 test는 학습에 쓰지 않았고 모든 외부 데이터는 MMMU와 중복을 제거했다.
