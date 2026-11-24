@@ -1,0 +1,35 @@
+{
+  "name": "musixqa_pilot20_v1",
+  "seed": 42,
+  "evidence_file": "reports/pilot20_recipe_evidence.json",
+  "status": "initial_experimental_recipe_not_validated_optimum",
+  "team_review": "waived_by_user",
+  "candidate_train_counts": {
+    "PitchReading": 2400,
+    "KeySignature": 1000,
+    "MeasureCount": 800,
+    "Clef": 800
+  },
+  "training_counts": {
+    "PitchReading": 1920,
+    "KeySignature": 800,
+    "MeasureCount": 320,
+    "Clef": 160
+  },
+  "holdout_counts": {
+    "PitchReading": 100,
+    "KeySignature": 100,
+    "MeasureCount": 100,
+    "Clef": 100
+  },
+  "pitch_train_length_weights": {"1-3": 30, "4-6": 45, "7-8": 25},
+  "pitch_clef_balance": "treble_bass_equal",
+  "pitch_errors": {"staff_steps": [-2, -1, 1, 2], "require_staff_error": true},
+  "key_signature_balance": "all_15_counts_from_7_flats_to_7_sharps",
+  "key_count_pairs": true,
+  "clef_content_balance": "three_observed_classes_equal",
+  "measure_count_balance": "retain_source_distribution_no_uniform_extreme_oversampling",
+  "answer_positions": "equal_ABCD_per_category; joint_content_balance_for_KeySignature_Clef_and_pitch_strata",
+  "evaluation_policy": "freeze_400_item_holdout_and_report_each_category; do_not_weight_it_by_training_mix",
+  "release_status": "requires_new_content_review_and_MMMU_deduplication_before_training"
+}

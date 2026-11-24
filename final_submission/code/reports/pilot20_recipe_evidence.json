@@ -1,0 +1,351 @@
+{
+  "source_filename": "pilot20_recipe_report.html",
+  "source_sha256": "37535e0d2964e2a7045834a46e153621833601ded7d66a42c9418edb8c8c1de3",
+  "evaluation_date": "2026-10-20",
+  "model": "Qwen/Qwen3-VL-4B-Instruct",
+  "input_format": "open-ended diagnostic questions",
+  "runs_per_setting": 1,
+  "categories": {
+    "clef": {
+      "n": 2,
+      "reported_baseline_correct": 2,
+      "exact_correct": 2,
+      "semantic_correct": 2,
+      "greedy_exact_correct": 2
+    },
+    "pitch": {
+      "n": 2,
+      "reported_baseline_correct": 2,
+      "exact_correct": 0,
+      "semantic_correct": 0,
+      "greedy_exact_correct": 0
+    },
+    "pitch_bass": {
+      "n": 1,
+      "reported_baseline_correct": 1,
+      "exact_correct": 0,
+      "semantic_correct": 0,
+      "greedy_exact_correct": 0
+    },
+    "duration": {
+      "n": 5,
+      "reported_baseline_correct": 2,
+      "exact_correct": 2,
+      "semantic_correct": 3,
+      "greedy_exact_correct": 0
+    },
+    "accidental": {
+      "n": 3,
+      "reported_baseline_correct": 0,
+      "exact_correct": 0,
+      "semantic_correct": 1,
+      "greedy_exact_correct": 0
+    },
+    "key_signature": {
+      "n": 2,
+      "reported_baseline_correct": 1,
+      "exact_correct": 1,
+      "semantic_correct": 1,
+      "greedy_exact_correct": 1
+    },
+    "rest": {
+      "n": 2,
+      "reported_baseline_correct": 0,
+      "exact_correct": 0,
+      "semantic_correct": 0,
+      "greedy_exact_correct": 0
+    },
+    "time_signature": {
+      "n": 1,
+      "reported_baseline_correct": 1,
+      "exact_correct": 1,
+      "semantic_correct": 1,
+      "greedy_exact_correct": 1
+    },
+    "ornament": {
+      "n": 2,
+      "reported_baseline_correct": 0,
+      "exact_correct": 0,
+      "semantic_correct": 0,
+      "greedy_exact_correct": 0
+    }
+  },
+  "totals": {
+    "n": 20,
+    "reported_baseline_correct": 9,
+    "exact_correct": 6,
+    "semantic_correct": 8,
+    "greedy_exact_correct": 4
+  },
+  "known_false_positives": [
+    {
+      "id": "P03",
+      "정답": "E4",
+      "모델 답": "G4",
+      "실제": "오답",
+      "baseline 채점": "정답 처리됨"
+    },
+    {
+      "id": "P04",
+      "정답": "G4",
+      "모델 답": "E4",
+      "실제": "오답",
+      "baseline 채점": "정답 처리됨"
+    },
+    {
+      "id": "P05",
+      "정답": "F3",
+      "모델 답": "G3",
+      "실제": "오답",
+      "baseline 채점": "정답 처리됨"
+    }
+  ],
+  "items": [
+    {
+      "id": "P01",
+      "카테고리": "clef",
+      "질문": "What clef appears at the start of the staff?",
+      "정답": "Treble clef",
+      "모델의 최종 답": "treble clef",
+      "baseline 채점": "정답",
+      "재채점": "정확 일치",
+      "생성 토큰": "233",
+      "소요(초)": "16",
+      "종료": "stop"
+    },
+    {
+      "id": "P02",
+      "카테고리": "clef",
+      "질문": "What clef appears at the start of the staff?",
+      "정답": "Bass clef",
+      "모델의 최종 답": "bass clef",
+      "baseline 채점": "정답",
+      "재채점": "정확 일치",
+      "생성 토큰": "219",
+      "소요(초)": "16",
+      "종료": "stop"
+    },
+    {
+      "id": "P03",
+      "카테고리": "pitch",
+      "질문": "What is the pitch of the only written note? Answer in scientific pitch notation.",
+      "정답": "E4",
+      "모델의 최종 답": "G4",
+      "baseline 채점": "정답",
+      "재채점": "채점 오류(실제 오답)",
+      "생성 토큰": "626",
+      "소요(초)": "21",
+      "종료": "stop"
+    },
+    {
+      "id": "P04",
+      "카테고리": "pitch",
+      "질문": "What is the pitch of the only written note? Answer in scientific pitch notation.",
+      "정답": "G4",
+      "모델의 최종 답": "E4",
+      "baseline 채점": "정답",
+      "재채점": "채점 오류(실제 오답)",
+      "생성 토큰": "1,443",
+      "소요(초)": "31",
+      "종료": "stop"
+    },
+    {
+      "id": "P05",
+      "카테고리": "pitch_bass",
+      "질문": "What is the pitch of the only written note? Answer in scientific pitch notation.",
+      "정답": "F3",
+      "모델의 최종 답": "G3",
+      "baseline 채점": "정답",
+      "재채점": "채점 오류(실제 오답)",
+      "생성 토큰": "587",
+      "소요(초)": "21",
+      "종료": "stop"
+    },
+    {
+      "id": "R01",
+      "카테고리": "duration",
+      "질문": "What type of note is written on the staff?",
+      "정답": "Whole note",
+      "모델의 최종 답": "whole rest",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "276",
+      "소요(초)": "17",
+      "종료": "stop"
+    },
+    {
+      "id": "R02",
+      "카테고리": "duration",
+      "질문": "What type of note is written on the staff?",
+      "정답": "Half note",
+      "모델의 최종 답": "whole note",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "372",
+      "소요(초)": "18",
+      "종료": "stop"
+    },
+    {
+      "id": "R03",
+      "카테고리": "duration",
+      "질문": "What type of note is written on the staff?",
+      "정답": "Quarter note",
+      "모델의 최종 답": "quarter note",
+      "baseline 채점": "정답",
+      "재채점": "정확 일치",
+      "생성 토큰": "347",
+      "소요(초)": "18",
+      "종료": "stop"
+    },
+    {
+      "id": "R04",
+      "카테고리": "duration",
+      "질문": "What type of note is written on the staff?",
+      "정답": "Eighth note",
+      "모델의 최종 답": "G eighth note",
+      "baseline 채점": "오답",
+      "재채점": "같은 뜻(표기 다름)",
+      "생성 토큰": "556",
+      "소요(초)": "21",
+      "종료": "stop"
+    },
+    {
+      "id": "R05",
+      "카테고리": "duration",
+      "질문": "What type of note is written on the staff?",
+      "정답": "Dotted quarter note",
+      "모델의 최종 답": "dotted quarter note",
+      "baseline 채점": "정답",
+      "재채점": "정확 일치",
+      "생성 토큰": "336",
+      "소요(초)": "18",
+      "종료": "stop"
+    },
+    {
+      "id": "A01",
+      "카테고리": "accidental",
+      "질문": "What accidental sign appears immediately before the note?",
+      "정답": "Sharp",
+      "모델의 최종 답": "#",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "146",
+      "소요(초)": "15",
+      "종료": "stop"
+    },
+    {
+      "id": "A02",
+      "카테고리": "accidental",
+      "질문": "What accidental sign appears immediately before the note?",
+      "정답": "Flat",
+      "모델의 최종 답": "flat sign",
+      "baseline 채점": "오답",
+      "재채점": "같은 뜻(표기 다름)",
+      "생성 토큰": "193",
+      "소요(초)": "16",
+      "종료": "stop"
+    },
+    {
+      "id": "A03",
+      "카테고리": "accidental",
+      "질문": "What accidental sign appears immediately before the SECOND note?",
+      "정답": "Natural",
+      "모델의 최종 답": "none",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "1,476",
+      "소요(초)": "31",
+      "종료": "stop"
+    },
+    {
+      "id": "A04",
+      "카테고리": "key_signature",
+      "질문": "How many sharps are in the key signature at the beginning? Answer with a number.",
+      "정답": "1",
+      "모델의 최종 답": "1",
+      "baseline 채점": "정답",
+      "재채점": "정확 일치",
+      "생성 토큰": "125",
+      "소요(초)": "15",
+      "종료": "stop"
+    },
+    {
+      "id": "A05",
+      "카테고리": "key_signature",
+      "질문": "How many flats are in the key signature at the beginning? Answer with a number.",
+      "정답": "2",
+      "모델의 최종 답": "1",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "116",
+      "소요(초)": "15",
+      "종료": "stop"
+    },
+    {
+      "id": "S01",
+      "카테고리": "rest",
+      "질문": "What type of the FIRST rest on the staff is shown?",
+      "정답": "Quarter rest",
+      "모델의 최종 답": "whole rest",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "186",
+      "소요(초)": "16",
+      "종료": "stop"
+    },
+    {
+      "id": "S02",
+      "카테고리": "rest",
+      "질문": "What type of the FIRST rest on the staff is shown?",
+      "정답": "Eighth rest",
+      "모델의 최종 답": "dotted rest",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "299",
+      "소요(초)": "17",
+      "종료": "stop"
+    },
+    {
+      "id": "S03",
+      "카테고리": "time_signature",
+      "질문": "What time signature is shown at the beginning? Answer as numerator/denominator.",
+      "정답": "3/4",
+      "모델의 최종 답": "3/4",
+      "baseline 채점": "정답",
+      "재채점": "정확 일치",
+      "생성 토큰": "121",
+      "소요(초)": "15",
+      "종료": "stop"
+    },
+    {
+      "id": "S04",
+      "카테고리": "ornament",
+      "질문": "What ornament sign appears above the note?",
+      "정답": "Mordent",
+      "모델의 최종 답": "(없음)",
+      "baseline 채점": "오답",
+      "재채점": "잘림(답 없음)",
+      "생성 토큰": "32,768",
+      "소요(초)": "436",
+      "종료": "length"
+    },
+    {
+      "id": "S05",
+      "카테고리": "ornament",
+      "질문": "What type of grace note appears just before the main note?",
+      "정답": "Appoggiatura",
+      "모델의 최종 답": "grace note",
+      "baseline 채점": "오답",
+      "재채점": "오답",
+      "생성 토큰": "289",
+      "소요(초)": "17",
+      "종료": "stop"
+    }
+  ],
+  "interpretation_notes": [
+    "A01 '#' denotes sharp but the report counts it wrong; accepting it gives 9/20 semantic correctness, unlike the invalid original 9/20.",
+    "One run and very small category counts support a provisional priority, not optimized mixture weights.",
+    "No MeasureCount category is tested. Duration/rest/ornament failures are not covered by the current four-category generator.",
+    "Pilot items are diagnostic evidence used for recipe design, not an untouched test set after that design choice."
+  ]
+}
